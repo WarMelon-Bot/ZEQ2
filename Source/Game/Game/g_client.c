@@ -1218,6 +1218,7 @@ void G_ClearLockonState(int clientNum){
 			cl->ps.bitFlags&=~isTargeted;
 			cl->ps.bitFlags&=~isSafe;
 			cl->ps.bitFlags|=isUnsafe;
+			g_entities[i].eventTime=level.time;
 		}
 	}
 	// Clear this client's own lockon state

@@ -704,6 +704,12 @@ static void CG_DrawStatusBar( void ) {
 	cent = &cg_entities[cg.snap->ps.clientNum];
 	tier = (float)ps->powerLevel[plTierCurrent];
 	CG_CheckChat();
+	// SAFETY: If lockedTarget is set but the target is not valid, clear it
+	if(ps->lockedTarget > 0 && !cgs.clientinfo[ps->lockedTarget-1].infoValid){
+		ps->lockedTarget = 0;
+		ps->lockedPlayer = 0;
+		ps->lockedPosition = 0;
+	}
 	if(ps->lockedTarget > 0 && cgs.clientinfo[ps->lockedTarget-1].infoValid){
 		lockedTargetPS.clientNum = ps->lockedTarget-1;
 		lockedTargetPS.powerLevel[plCurrent] = ps->lockedPlayerData[lkPowerCurrent];
