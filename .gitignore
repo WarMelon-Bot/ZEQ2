@@ -35,3 +35,9 @@ Makefile.in
 # Optional: Ignore compiled scripts or platform tools
 *.sh~
 *.bat~
+/Build/ZEQ2
+/Build
+/Source/Build
+/Source/Build/Release-mingw32-x86/Base/Game
+/Source/Build/Release-mingw32-x86/Base
+/Source/Build/Release-mingw32-x86

@@ -926,6 +926,9 @@ void ClientBegin( int clientNum ) {
 
 	// count current clients and rank for scoreboard
 	CalculateRanks();
+
+	// Clear lock-on state for all clients targeting this client
+	G_ClearLockonState(clientNum);
 }
 
 /*
@@ -1112,6 +1115,9 @@ void ClientSpawn(gentity_t *ent) {
 
 	// clear entity state values
 	BG_PlayerStateToEntityState(&client->ps,&ent->s,qtrue);
+
+	// Clear lock-on state for all clients targeting this client
+	G_ClearLockonState(ent-g_entities);
 }
 
 
@@ -1157,7 +1163,7 @@ void ClientDisconnect( int clientNum ) {
 
 		// They don't get to take powerups with them!
 		// Especially important for stuff like CTF flags
-}
+	}
 	G_LogPrintf( "ClientDisconnect: %i\n", clientNum );
 
 	// if we are playing in tourney mode and losing, give a win to the other player
@@ -1191,6 +1197,36 @@ void ClientDisconnect( int clientNum ) {
 	trap_SetConfigstring( CS_PLAYERS + clientNum, "");
 
 	CalculateRanks();
+
+	// Clear lock-on state for all clients targeting this client
+	G_ClearLockonState(clientNum);
+}
+
+void G_ClearLockonState(int clientNum){
+	int i;
+	gclient_t *cl;
+	gentity_t *ent;
+	if(clientNum<0||clientNum>=level.maxclients){return;}
+	ent=&g_entities[clientNum];
+	// Clear anyone targeting this client
+	for(i=0;i<level.maxclients;i++){
+		cl=level.clients+i;
+		if(cl->ps.lockedTarget==clientNum+1){
+			cl->ps.lockedTarget=0;
+			cl->ps.lockedPlayer=0;
+			cl->ps.lockedPosition=0;
+			cl->ps.bitFlags&=~isTargeted;
+			cl->ps.bitFlags&=~isSafe;
+			cl->ps.bitFlags|=isUnsafe;
+		}
+	}
+	// Clear this client's own lockon state
+	ent->client->ps.lockedTarget=0;
+	ent->client->ps.lockedPlayer=0;
+	ent->client->ps.lockedPosition=0;
+	ent->client->ps.bitFlags&=~isTargeted;
+	ent->client->ps.bitFlags&=~isSafe;
+	ent->client->ps.bitFlags|=isUnsafe;
 }
 
 

@@ -355,6 +355,7 @@ typedef enum {
 #define isTargeted		0x00200000
 #define isPreparing		0x00400000
 #define isUnsafe		0x00800000
+#define isSafe		0x01000000
 #define atopGround		0x01000000
 #define nearGround		0x02000000
 #define underWater		0x04000000	

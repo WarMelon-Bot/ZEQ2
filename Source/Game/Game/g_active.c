@@ -328,17 +328,25 @@ void ClientEvents( gentity_t *ent, int oldEventSequence ) {
 	int			amount;
 	vec3_t		dir;
 	vec3_t		origin, angles;
-//	qboolean	fired;
 	gentity_t	*drop;
 	playerState_t *ps;
 	playerState_t *enemyPS;
-	// ADDING FOR ZEQ2
 	gentity_t	*missile;
-	// END ADDING
 	client = ent->client;
 	ps = &client->ps;
-	if(ps->lockedTarget>0){
-		enemyPS = &g_entities[ps->lockedTarget-1].client->ps;
+	if(ps->lockedTarget>0&&ps->lockedTarget<=level.maxclients){
+		gentity_t *lockedEnt = &g_entities[ps->lockedTarget-1];
+		if(lockedEnt->client&&lockedEnt->inuse&&lockedEnt->client->pers.connected==CON_CONNECTED){
+			enemyPS = &lockedEnt->client->ps;
+		}else{
+			ps->lockedPosition=0;
+			ps->lockedPlayer=0;
+			ps->lockedTarget=0;
+		}
+	}else{
+		ps->lockedPosition=0;
+		ps->lockedPlayer=0;
+		ps->lockedTarget=0;
 	}
 	tier = ps->powerLevel[plTierCurrent];
 	if ( oldEventSequence < client->ps.eventSequence - MAX_PS_EVENTS ) {
@@ -368,22 +376,26 @@ void ClientEvents( gentity_t *ent, int oldEventSequence ) {
 		case EV_BALLFLIP:
 			break;
 		case EV_MELEE_CHECK:
-			if(ps->lockedTarget>0){
-				if(!&g_entities[ps->lockedTarget-1].client || &g_entities[ps->lockedTarget-1].client->pers.connected == CON_DISCONNECTED){
-					ps->lockedPosition = 0;
-					ps->lockedPlayer = 0;
-					ps->lockedTarget = 0;
+			if(ps->lockedTarget>0&&ps->lockedTarget<=level.maxclients){
+				gentity_t *lockedEnt = &g_entities[ps->lockedTarget-1];
+				if(!lockedEnt->client||!lockedEnt->inuse||lockedEnt->client->pers.connected!=CON_CONNECTED){
+					ps->lockedPosition=0;
+					ps->lockedPlayer=0;
+					ps->lockedTarget=0;
 					break;
 				}
-				if(ps->lockedPlayer->bitFlags & isStruggling || ps->lockedPlayer->bitFlags & isDead || ps->lockedPlayer->bitFlags & isUnconcious ||
-				   ps->lockedPlayer->bitFlags & isTransforming || ps->lockedPlayer->bitFlags & isCrashed){
-					ps->lockedPosition = 0;
-					ps->lockedPlayer = 0;
-					ps->lockedTarget = 0;
+				if(ps->lockedPlayer->bitFlags&isStruggling||ps->lockedPlayer->bitFlags&isDead||ps->lockedPlayer->bitFlags&isUnconcious||ps->lockedPlayer->bitFlags&isTransforming||ps->lockedPlayer->bitFlags&isCrashed){
+					ps->lockedPosition=0;
+					ps->lockedPlayer=0;
+					ps->lockedTarget=0;
 					break;
 				}
-				ps->lockedPosition = &g_entities[ps->lockedTarget-1].r.currentOrigin;
-				ps->lockedPlayer = &g_entities[ps->lockedTarget-1].client->ps;
+				ps->lockedPosition=&lockedEnt->r.currentOrigin;
+				ps->lockedPlayer=&lockedEnt->client->ps;
+			}else{
+				ps->lockedPosition=0;
+				ps->lockedPlayer=0;
+				ps->lockedTarget=0;
 			}
 			break;
 		case EV_MELEE_SPEED:
@@ -425,10 +437,14 @@ void ClientEvents( gentity_t *ent, int oldEventSequence ) {
 			ent->r.contents &= ~CONTENTS_BODY;
 			syncTier(client);
 			client->respawnTime = level.time + 10000;
+			// Clear lock-on state for all clients targeting this client
+			G_ClearLockonState(ent-g_entities);
 			break;
 		case EV_UNCONCIOUS:
 			ps->powerLevel[plTierCurrent] = 0;
 			syncTier(client);
+			// Clear lock-on state for all clients targeting this client
+			G_ClearLockonState(ent-g_entities);
 			break;
 		default:
 			break;

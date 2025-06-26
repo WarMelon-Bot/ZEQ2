@@ -431,6 +431,8 @@ void SetTeam( gentity_t *ent, char *s ) {
 	ClientUserinfoChanged( clientNum );
 
 	ClientBegin( clientNum );
+	// Clear lock-on state for all clients targeting this client
+	G_ClearLockonState(clientNum);
 }
 
 /*
@@ -448,6 +450,8 @@ void StopFollowing( gentity_t *ent ) {
 	ent->client->ps.pm_flags &= ~PMF_FOLLOW;
 	ent->r.svFlags &= ~SVF_BOT;
 	ent->client->ps.clientNum = ent - g_entities;
+	// Clear lock-on state for all clients targeting this client
+	G_ClearLockonState(ent-g_entities);
 }
 
 /*
@@ -542,6 +546,8 @@ void Cmd_Follow_f( gentity_t *ent ) {
 
 	ent->client->sess.spectatorState = SPECTATOR_FOLLOW;
 	ent->client->sess.spectatorClient = i;
+	// Clear lock-on state for all clients targeting this client
+	G_ClearLockonState(ent-g_entities);
 }
 
 /*
@@ -591,6 +597,8 @@ void Cmd_FollowCycle_f( gentity_t *ent, int dir ) {
 		// this is good, we can use it
 		ent->client->sess.spectatorClient = clientnum;
 		ent->client->sess.spectatorState = SPECTATOR_FOLLOW;
+		// Clear lock-on state for all clients targeting this client
+		G_ClearLockonState(ent-g_entities);
 		return;
 	} while ( clientnum != original );
 

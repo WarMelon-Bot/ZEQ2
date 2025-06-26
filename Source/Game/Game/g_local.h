@@ -929,3 +929,5 @@ int		trap_GeneticParentsAndChildSelection(int numranks, float *ranks, int *paren
 
 void	trap_SnapVector( float *v );
 
+void G_ClearLockonState(int clientNum);
+
