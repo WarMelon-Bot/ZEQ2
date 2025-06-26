@@ -545,6 +545,12 @@ void PM_CheckStatus(void){
 	}
 }
 qboolean PM_CheckTransform(void){
+	/* Block transform if melee or charging melee */
+	if((pm->ps->bitFlags & usingMelee) ||
+	   pm->ps->stats[stMeleeState] == stMeleeChargingPower ||
+	   pm->ps->stats[stMeleeState] == stMeleeChargingStun){
+		return qfalse;
+	}
 	pm->ps->timers[tmUpdateTier] += pml.msec;
 	if(pm->ps->timers[tmUpdateTier] > 300){
 		pm->ps->timers[tmUpdateTier] = 0;
@@ -658,12 +664,27 @@ void PM_CheckPowerLevel(void){
 			PM_ForceLegsAnim(ANIM_FLY_DOWN);
 		}
 		if(pm->cmd.forwardmove > 0){
-			pm->ps->bitFlags |= keyTierUp;
-			pm->ps->bitFlags &= ~usingAlter;
+			/* Block transform if melee or charging melee */
+			if((pm->ps->bitFlags & usingMelee) ||
+			   pm->ps->stats[stMeleeState] == stMeleeChargingPower ||
+			   pm->ps->stats[stMeleeState] == stMeleeChargingStun){
+				/* Do not allow transformation */
+			}
+			else{
+				pm->ps->bitFlags |= keyTierUp;
+				pm->ps->bitFlags &= ~usingAlter;
+			}
 		}
 		else if(pm->cmd.forwardmove < 0){
-			pm->ps->bitFlags |= keyTierDown;
-			pm->ps->bitFlags &= ~usingAlter;
+			if((pm->ps->bitFlags & usingMelee) ||
+			   pm->ps->stats[stMeleeState] == stMeleeChargingPower ||
+			   pm->ps->stats[stMeleeState] == stMeleeChargingStun){
+				/* Do not allow transformation */
+			}
+			else{
+				pm->ps->bitFlags |= keyTierDown;
+				pm->ps->bitFlags &= ~usingAlter;
+			}
 		}
 		else if(canAlter && pm->cmd.rightmove < 0){
 			pm->ps->eFlags &= ~EF_AURA;
