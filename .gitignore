@@ -1,21 +1,37 @@
-# Ignore compiled output
-/build/
+# Ignore build output directory
 /Build/
-/Debug/
-/Release/
+
+# Ignore object files and compiler artifacts
 *.o
 *.obj
 *.exe
 *.dll
 *.pdb
 *.so
+*.a
+*.lib
 *.log
 
-# CMake or Visual Studio artifacts
+# Ignore backup and temp files
+*~
+*.tmp
+*.bak
+*.swp
+*.swo
+
+# Ignore IDE files
+.vscode/
+.idea/
+
+# Ignore SVN folders (including hidden ones)
+.svn/
+
+# Ignore CMake cache and build intermediates (if used)
 CMakeFiles/
 CMakeCache.txt
-*.sln
-*.vcxproj*
+cmake_install.cmake
+Makefile.in
 
-# SVN metadata
-.svn/
+# Optional: Ignore compiled scripts or platform tools
+*.sh~
+*.bat~
