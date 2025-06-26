@@ -1,0 +1,36 @@
+
+	<?xml version="1.0" encoding="UTF-8"?>
+	<!DOCTYPE plist
+		PUBLIC "-//Apple Computer//DTD PLIST 1.0//EN"
+		"http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+	<plist version="1.0">
+	<dict>
+		<key>CFBundleDevelopmentRegion</key>
+		<string>English</string>
+		<key>CFBundleExecutable</key>
+		<string>zeq2lite.ub</string>
+		<key>CFBundleGetInfoString</key>
+		<string>ZEQ2-Lite Public Beta 2</string>
+		<key>CFBundleIconFile</key>
+		<string>zeq2.icns</string>
+		<key>CFBundleIdentifier</key>
+		<string>org.zeq2lite.zeq2lite</string>
+		<key>CFBundleInfoDictionaryVersion</key>
+		<string>6.0</string>
+		<key>CFBundleName</key>
+		<string>ZEQ2-Lite</string>
+		<key>CFBundlePackageType</key>
+		<string>APPL</string>
+		<key>CFBundleShortVersionString</key>
+		<string>PB2</string>
+		<key>CFBundleSignature</key>
+		<string>ZEQ2LITE</string>
+		<key>CFBundleVersion</key>
+		<string>PB2</string>
+		<key>NSExtensions</key>
+		<dict/>
+		<key>NSPrincipalClass</key>
+		<string>NSApplication</string>
+	</dict>
+	</plist>
+	
