@@ -1521,42 +1521,33 @@ int PM_FootstepForSurface(void){
 PM_Land
 =================*/
 void PM_Land(void){
-	float		delta;
-	float		dist;
-	float		vel, acc;
-	float		t;
-	float		a, b, c, den;
+	float delta,dist,vel,acc,t,a,b,c,den;
+	qboolean wasBallFlip;
+	wasBallFlip = (pm->ps->bitFlags & usingBallFlip) ? qtrue : qfalse;
 	pm->ps->legsTimer = TIMER_LAND;
 	// calculate the exact velocity on landing
 	dist = pm->ps->origin[2] - pml.previous_origin[2];
 	vel = pml.previous_velocity[2];
 	acc = -pm->ps->gravity[2];
-
 	a = acc / 2;
 	b = vel;
 	c = -dist;
-
 	den =  b * b - 4 * a * c;
-	if(den < 0){
-		return;
-	}
+	if(den < 0){return;}
 	t = (-b - sqrt(den)) / (2 * a );
-
 	delta = vel + t * acc;
 	delta = delta*delta * 0.0001;
-	// reduce falling damage ifthere is standing water
-	if(pm->waterlevel == 2){
-		delta *= 0.25;
-	}
-	if(pm->waterlevel == 1){
-		delta *= 0.5;
-	}
-
-	if(delta < 1){
-		return;
-	}
+	// reduce falling damage if there is standing water
+	if(pm->waterlevel == 2){delta *= 0.25;}
+	if(pm->waterlevel == 1){delta *= 0.5;}
+	if(delta < 1){return;}
 	// start footstep cycle over
 	pm->ps->bobCycle = 0;
+	// Ball flip sound fix: stop looping sound if landing while usingBallFlip
+	if(wasBallFlip){
+		pm->ps->bitFlags &= ~usingBallFlip;
+		PM_AddEvent(EV_STOPLOOPINGSOUND);
+	}
 }
 /*
 =============
@@ -2274,6 +2265,7 @@ void PM_Melee(void){
 	int meleeCharge,enemyState,state,option,damage,distance,animation,direction,entity;
 	qboolean charging,movingForward,idleTime,enemyChanged,enemyDefense;
 	qtime_t realRandom;
+	static int prevState = 0;
 	trap_RealTime(&realRandom);
 	if(pm->ps->persistant[PERS_TEAM] == TEAM_SPECTATOR || pm->ps->bitFlags & isStruggling || pm->ps->timers[tmMeleeIdle] < 0){return;}
 	charging = (pm->ps->weaponstate == WEAPON_CHARGING || pm->ps->weaponstate == WEAPON_ALTCHARGING) ? qtrue : qfalse;
@@ -2325,6 +2317,11 @@ void PM_Melee(void){
 	// ===================
 	// Melee Logic
 	// ===================
+	// Speed Melee sound fix: stop looping sound when leaving stMeleeUsingSpeed
+	if(prevState == stMeleeUsingSpeed && state != stMeleeUsingSpeed){
+		PM_AddEvent(EV_STOPLOOPINGSOUND);
+	}
+	prevState = state;
 	if(distance <= 64 && !pm->ps->timers[tmFreeze]){
 		// Preparation
 		PM_CheckDrift();
