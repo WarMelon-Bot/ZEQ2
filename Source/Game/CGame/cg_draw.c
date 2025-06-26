@@ -704,12 +704,6 @@ static void CG_DrawStatusBar( void ) {
 	cent = &cg_entities[cg.snap->ps.clientNum];
 	tier = (float)ps->powerLevel[plTierCurrent];
 	CG_CheckChat();
-	// SAFETY: If lockedTarget is set but the target is not valid, clear it
-	if(ps->lockedTarget > 0 && !cgs.clientinfo[ps->lockedTarget-1].infoValid){
-		ps->lockedTarget = 0;
-		ps->lockedPlayer = 0;
-		ps->lockedPosition = 0;
-	}
 	if(ps->lockedTarget > 0 && cgs.clientinfo[ps->lockedTarget-1].infoValid){
 		lockedTargetPS.clientNum = ps->lockedTarget-1;
 		lockedTargetPS.powerLevel[plCurrent] = ps->lockedPlayerData[lkPowerCurrent];
@@ -2269,41 +2263,43 @@ void CG_DrawTimedMenus() {
 CG_Draw2D
 =================
 */
-static void CG_Draw2D( void ) {
+static void CG_Draw2D(void){
+	playerState_t *pps;
 	// if we are taking a levelshot for the menu, don't draw anything
-	if ( cg.levelShot ) {
-		return;
-	}
-	if ( cg_draw2D.integer == 0 ) {
-		return;
-	}
-	if ( cg.snap->ps.pm_type == PM_INTERMISSION ) {
-		return;
-	}
-	if ( cg.snap->ps.persistant[PERS_TEAM] == TEAM_SPECTATOR ) {
+	if(cg.levelShot){return;}
+	if(cg_draw2D.integer==0){return;}
+	if(cg.snap->ps.pm_type==PM_INTERMISSION){return;}
+	if(cg.snap->ps.persistant[PERS_TEAM]==TEAM_SPECTATOR){
 		CG_DrawSpectator();
 		CG_DrawCrosshair();
 		CG_DrawCrosshairNames();
 		CG_DrawRadar();
-	} else {
+	}else{
 		// don't draw any status if dead or the scoreboard is being explicitly shown
-		if (!(cg.snap->ps.timers[tmTransform] > 1) && !(cg.snap->ps.powerups[PW_STATE] < 0)){
-		
-
-			playerState_t	*ps;
+		if(!(cg.snap->ps.timers[tmTransform]>1)&&!(cg.snap->ps.powerups[PW_STATE]<0)){
+			playerState_t *ps;
 			clientInfo_t *ci;
-			ci = &cgs.clientinfo[cg.snap->ps.clientNum];
-			ps = &cg.snap->ps;
+			ci=&cgs.clientinfo[cg.snap->ps.clientNum];
+			ps=&cg.snap->ps;
+			// Also check predictedPlayerState for ghost lock
+			pps=&cg.predictedPlayerState;
+			if(pps->lockedTarget>0){
+				if(pps->lockedTarget-1==pps->clientNum||pps->lockedTarget<=0||pps->lockedTarget>MAX_CLIENTS||!cgs.clientinfo[pps->lockedTarget-1].infoValid){
+					pps->lockedTarget=0;
+					pps->lockedPlayer=0;
+					pps->lockedPosition=0;
+				}
+			}
 			CG_DrawStatusBar();
 			CG_DrawAmmoWarning();  
 			CG_DrawCrosshair();
 			CG_DrawCrosshairNames();
 			CG_DrawRadar();
-			if(!(cg.snap->ps.bitFlags & usingMelee)){
+			if(!(cg.snap->ps.bitFlags&usingMelee)){
 				CG_DrawWeaponSelect();
 			}
 		}
-		if ( cgs.gametype >= GT_TEAM ) {
+		if(cgs.gametype>=GT_TEAM){
 			CG_DrawTeamInfo();
 		}
 	}
@@ -2311,7 +2307,7 @@ static void CG_Draw2D( void ) {
 	CG_DrawTeamVote();
 	CG_DrawUpperRight();
 	CG_DrawLowerRight();
-	if (!CG_DrawFollow()){
+	if(!CG_DrawFollow()){
 		CG_DrawWarmup();
 	}
 }
