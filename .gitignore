@@ -1,0 +1,21 @@
+# Ignore compiled output
+/build/
+/Build/
+/Debug/
+/Release/
+*.o
+*.obj
+*.exe
+*.dll
+*.pdb
+*.so
+*.log
+
+# CMake or Visual Studio artifacts
+CMakeFiles/
+CMakeCache.txt
+*.sln
+*.vcxproj*
+
+# SVN metadata
+.svn/
