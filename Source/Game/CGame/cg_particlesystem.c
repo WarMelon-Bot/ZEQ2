@@ -1392,10 +1392,14 @@ void PSys_SpawnCachedSystem( char* systemName, vec3_t origin, vec3_t *axis,
 	int						i;
 
 	// Load from cache. Abort system's spawn if element not in cache
-	cache = PSys_LoadSystemFromCache( systemName );
-	if ( !cache ) {
-		CG_Printf( S_COLOR_YELLOW "WARNING: '%s': can not find particle system\n", systemName );
-		return;
+	cache = PSys_LoadSystemFromCache(systemName);
+	if(!cache){
+		CG_Printf(S_COLOR_YELLOW "WARNING: '%s': can not find particle system, forcing fallback to 'EnergyBallYellowFlash'\n",systemName);
+		cache=PSys_LoadSystemFromCache("EnergyBallYellowFlash");
+		if(!cache){
+			CG_Printf(S_COLOR_RED "ERROR: 'EnergyBallYellowFlash' is missing! No particle system will be spawned.\n");
+			return;
+		}
 	}
 
 	// Spawn the system and set its parameters

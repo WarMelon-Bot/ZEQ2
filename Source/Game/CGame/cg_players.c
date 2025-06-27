@@ -1896,7 +1896,7 @@ void CG_Player( centity_t *cent ) {
 	float			lerps[3];
 	vec3_t			angles[3];
 	qboolean		onBodyQue;
-	int				tier,health,damageState,damageTextureState,damageModelState;
+	int				tier, effectiveTier, health,damageState,damageTextureState,damageModelState;
 	int				state,enemyState;
 	int				scale;
 	float			xyzspeed;
@@ -1931,6 +1931,16 @@ void CG_Player( centity_t *cent ) {
 			CG_AddEarthquake(cent->lerpOrigin, 400, 1, 0, 1, 400);
 		}
 	}
+
+	// Robust tier fallback:
+	// Use the tier the server wants, but if we don't have assets for it,
+	// walk backwards until we find the highest tier we DO have assets for.
+	// This prevents invisible players if a client is missing higher-tier assets.
+	effectiveTier = tier;
+	while (effectiveTier > 0 && !ci->legsModel[effectiveTier]) {
+		effectiveTier--;
+	}
+
 	if(ci->tierCurrent > ci->tierMax){
 		ci->tierMax = ci->tierCurrent;
 	}
@@ -1965,10 +1975,10 @@ void CG_Player( centity_t *cent ) {
 	if(health <= 20){damageState = 1;}
 	if(health <= 10){damageState = 0;}
 	damageModelState = damageTextureState = damageState;
-	if(ci->damageModelState && damageModelState > (ci->damageModelState-1) && !ci->tierConfig[tier].damageModelsRevertHealed){
+	if(ci->damageModelState && damageModelState > (ci->damageModelState-1) && !ci->tierConfig[effectiveTier].damageModelsRevertHealed){
 		damageModelState = ci->damageModelState - 1;
 	}
-	if(ci->damageTextureState && damageTextureState > (ci->damageTextureState-1) && !ci->tierConfig[tier].damageTexturesRevertHealed){
+	if(ci->damageTextureState && damageTextureState > (ci->damageTextureState-1) && !ci->tierConfig[effectiveTier].damageTexturesRevertHealed){
 		damageTextureState = ci->damageTextureState - 1;
 	}
 	ci->damageTextureState = damageTextureState + 1;
@@ -1986,8 +1996,8 @@ void CG_Player( centity_t *cent ) {
 		renderfx |= RF_SHADOW_PLANE;
 	}
 	renderfx |= RF_LIGHTING_ORIGIN;			// use the same origin for all
-	legs.hModel = ci->modelDamageState[tier][2][damageModelState];
-	legs.customSkin = ci->skinDamageState[tier][2][damageTextureState];
+	legs.hModel = ci->modelDamageState[effectiveTier][2][damageModelState];
+	legs.customSkin = ci->skinDamageState[effectiveTier][2][damageTextureState];
 	VectorCopy(cent->lerpOrigin,legs.origin);
 	VectorCopy(cent->lerpOrigin,legs.lightingOrigin);
 	legs.shadowPlane = shadowPlane;
@@ -2021,29 +2031,29 @@ void CG_Player( centity_t *cent ) {
 		memcpy( &playerInfoDuplicate[cent->currentState.number], &cent->pe, sizeof(playerEntity_t));
 		CG_BreathPuffs(cent,&legs);
 		CG_BubblesTrail(cent,&legs);
-		CG_AddRefExtEntityWithPowerups( &altLegs, &cent->currentState, ci->team, ci->auraConfig[tier]->auraAlways );
+		CG_AddRefExtEntityWithPowerups( &altLegs, &cent->currentState, ci->team, ci->auraConfig[effectiveTier]->auraAlways );
 		CG_AddPlayerWeaponMD4(&altLegs,NULL,cent,ci->team);
 		CG_PlayerPowerups(cent,&legs);
 	}
 	else{
-		torso.hModel = ci->modelDamageState[tier][1][damageModelState];
-		torso.customSkin = ci->skinDamageState[tier][1][damageTextureState];
+		torso.hModel = ci->modelDamageState[effectiveTier][1][damageModelState];
+		torso.customSkin = ci->skinDamageState[effectiveTier][1][damageTextureState];
 		if(!torso.hModel){return;}
 		VectorCopy( cent->lerpOrigin, torso.lightingOrigin );
 		//CG_PositionRotatedEntityOnTag( &torso, &legs, ci->legsModel, "tag_torso");
 		CG_PositionRotatedEntityOnTag( &torso, &legs, legs.hModel, "tag_torso");
 		torso.shadowPlane = shadowPlane;
 		torso.renderfx = renderfx;
-		head.hModel = ci->modelDamageState[tier][0][damageModelState];
-		head.customSkin = ci->skinDamageState[tier][0][damageTextureState];
+		head.hModel = ci->modelDamageState[effectiveTier][0][damageModelState];
+		head.customSkin = ci->skinDamageState[effectiveTier][0][damageTextureState];
 		if(!head.hModel){return;}
 		VectorCopy( cent->lerpOrigin, head.lightingOrigin );
 		CG_PositionRotatedEntityOnTag( &head, &torso, torso.hModel, "tag_head");
 		head.shadowPlane = shadowPlane;
 		head.renderfx = renderfx;
-		CG_AddRefEntityWithPowerups( &legs, &cent->currentState, ci->team, ci->auraConfig[tier]->auraAlways );
-		CG_AddRefEntityWithPowerups( &torso, &cent->currentState, ci->team, ci->auraConfig[tier]->auraAlways );
-		CG_AddRefEntityWithPowerups( &head, &cent->currentState, ci->team, ci->auraConfig[tier]->auraAlways );
+		CG_AddRefEntityWithPowerups( &legs, &cent->currentState, ci->team, ci->auraConfig[effectiveTier]->auraAlways );
+		CG_AddRefEntityWithPowerups( &torso, &cent->currentState, ci->team, ci->auraConfig[effectiveTier]->auraAlways );
+		CG_AddRefEntityWithPowerups( &head, &cent->currentState, ci->team, ci->auraConfig[effectiveTier]->auraAlways );
 		CG_BreathPuffs(cent,&head);
 		CG_BubblesTrail(cent,&head);
 		memcpy( &(cent->pe.headRef ), &head , sizeof(refEntity_t));
@@ -2054,7 +2064,7 @@ void CG_Player( centity_t *cent ) {
 		CG_AddPlayerWeapon(&torso,NULL,cent,ci->team);
 		CG_PlayerPowerups(cent,&torso);
 	}
-	if((cent->currentState.eFlags & EF_AURA) || ci->auraConfig[tier]->auraAlways){
+	if((cent->currentState.eFlags & EF_AURA) || ci->auraConfig[effectiveTier]->auraAlways){
 		CG_AuraStart(cent);
 		if(!xyzspeed){CG_PlayerDirtPush(cent,scale,qfalse);}
 		if(ps->powerLevel[plCurrent] == ps->powerLevel[plMaximum] && ps->bitFlags & usingAlter){
@@ -2070,8 +2080,8 @@ void CG_Player( centity_t *cent ) {
 		}
 		return;
 	}
-	if(ci->auraConfig[tier]->showLightning){CG_LightningEffect(cent->lerpOrigin, ci, tier);}
-	if(ci->auraConfig[tier]->showLightning && ps->bitFlags & usingMelee){CG_BigLightningEffect(cent->lerpOrigin);}
+	if(ci->auraConfig[effectiveTier]->showLightning){CG_LightningEffect(cent->lerpOrigin, ci, effectiveTier);}
+	if(ci->auraConfig[effectiveTier]->showLightning && ps->bitFlags & usingMelee){CG_BigLightningEffect(cent->lerpOrigin);}
 }
 qboolean CG_GetTagOrientationFromPlayerEntityHeadModel( centity_t *cent, char *tagName, orientation_t *tagOrient ) {
 	int				i, clientNum;
