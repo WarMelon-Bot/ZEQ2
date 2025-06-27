@@ -1174,8 +1174,10 @@ void PSys_InitCache( void ) {
 	dirptr  = dirlist;
 	for ( i = 0; i < numdirs; i++, dirptr += dirlen+1 ) {
 		dirlen = strlen(dirptr);
-		strcpy(filename, "effects/");
-		strcat(filename, dirptr);
+		// strcpy(filename, "effects/");
+		// strcat(filename, dirptr);
+		Q_strncpyz(filename, "effects/", sizeof(filename));
+		Q_strcat(filename, sizeof(filename), dirptr);
 
 		PSys_ParseFile(filename, &PSys_CurCacheSize );
 	}

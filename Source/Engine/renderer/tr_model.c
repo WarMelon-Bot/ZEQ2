@@ -138,29 +138,32 @@ qhandle_t RE_RegisterModel( const char *name ) {
 
 	for ( lod = MD3_MAX_LODS - 1 ; lod >= 0 ; lod-- ) {
 		char filename[1024];
+		char namebuf[80];
 
-		strcpy( filename, name );
+		Q_strncpyz( filename, name, sizeof(filename) );
 
 		if ( lod != 0 ) {
-			char namebuf[80];
+			char *dot;
 
-			if ( strrchr( filename, '.' ) ) {
-				*strrchr( filename, '.' ) = 0;
+			dot = strrchr( filename, '.' );
+			if ( dot ) {
+				*dot = 0;
 			}
-			sprintf( namebuf, "_%d.md3", lod );
-			strcat( filename, namebuf );
+			Com_sprintf( namebuf, sizeof(namebuf), "_%d.md3", lod );
+			Q_strcat( filename, sizeof(filename), namebuf );
 		}
 
 		ri.FS_ReadFile( filename, (void **)&buf );
 		if ( !buf ) {
 			//try md4 if md3 is not present
-			char namebuf[80];
+			char *dot;
 
-			if ( strrchr( filename, '.' ) ) {
-				*strrchr( filename, '.' ) = 0;
+			dot = strrchr( filename, '.' );
+			if ( dot ) {
+				*dot = 0;
 			}
-			sprintf( namebuf, ".zMesh" );
-			strcat( filename, namebuf );
+			Com_sprintf( namebuf, sizeof(namebuf), ".zMesh" );
+			Q_strcat( filename, sizeof(filename), namebuf );
 
 			ri.FS_ReadFile( filename, (void **)&buf );
 			if ( !buf ) {
@@ -179,25 +182,34 @@ qhandle_t RE_RegisterModel( const char *name ) {
 			char		animFilename[1024];
 			int			animIdent;
 
-			strcpy( animFilename, filename );
+			Q_strncpyz( animFilename, filename, sizeof(animFilename) );
 
-			if ( strrchr( animFilename, '.' ) ) {
-				*strrchr( animFilename, '.' ) = 0;
+			{
+				char *dot = strrchr( animFilename, '.' );
+				if ( dot ) {
+					*dot = 0;
+				}
 			}
-			sprintf( animNamebuf, ".zAnimation" );
-			strcat( animFilename, animNamebuf );
+			Com_sprintf( animNamebuf, sizeof(animNamebuf), ".zAnimation" );
+			Q_strcat( animFilename, sizeof(animFilename), animNamebuf );
 
 			ri.FS_ReadFile( animFilename, (void **)&animBuf );
 			
-			animIdent = LittleLong(*(unsigned *)animBuf);
-			if(animIdent != MD4A_IDENT) {
+			if ( animBuf ) {
+				animIdent = LittleLong(*(unsigned *)animBuf);
+				if(animIdent != MD4A_IDENT) {
+					ri.Printf (PRINT_WARNING,"RE_RegisterModel: unable to find MD4A animation file for %s\n", name);
+					ri.FS_FreeFile (animBuf);
+					goto fail;
+				}
+				if(buf && animBuf)
+					loaded = R_LoadMD4B( mod, buf, name ) && R_LoadMD4A( mod, animBuf, name );
+				
+				ri.FS_FreeFile (animBuf);
+			} else {
 				ri.Printf (PRINT_WARNING,"RE_RegisterModel: unable to find MD4A animation file for %s\n", name);
 				goto fail;
 			}
-			if(buf && animBuf)
-				loaded = R_LoadMD4B( mod, buf, name ) && R_LoadMD4A( mod, animBuf, name );
-			
-			ri.FS_FreeFile (animBuf);
 		} else {
 			if ( ident != MD3_IDENT ) {
 				ri.Printf (PRINT_WARNING,"RE_RegisterModel: unknown fileid for %s\n", name);

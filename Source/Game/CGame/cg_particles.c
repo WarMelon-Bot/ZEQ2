@@ -334,6 +334,7 @@ void CG_AddParticleToScene (cparticle_t *p, vec3_t org, float alpha)
 		VectorSet (color, 1.0, 1.0, 1.0);
 		time = cg.time - p->time;
 		time2 = p->endtime - p->time;
+		if(time2==0)time2=1;
 		ratio = time / time2;
 
 		width = p->width + ( ratio * ( p->endwidth - p->width) );
@@ -429,6 +430,7 @@ void CG_AddParticleToScene (cparticle_t *p, vec3_t org, float alpha)
 
 		time = cg.time - p->time;
 		time2 = p->endtime - p->time;
+		if(time2==0)time2=1;
 		ratio = time / time2;
 		
 		if (cg.time > p->startfade)
@@ -621,6 +623,7 @@ void CG_AddParticleToScene (cparticle_t *p, vec3_t org, float alpha)
 		
 		time = cg.time - p->time;
 		time2 = p->endtime - p->time;
+		if(time2==0)time2=1;
 		ratio = time / time2;
 
 		width = p->width + ( ratio * ( p->endwidth - p->width) );
@@ -727,6 +730,7 @@ void CG_AddParticleToScene (cparticle_t *p, vec3_t org, float alpha)
 
 		time = cg.time - p->time;
 		time2 = p->endtime - p->time;
+		if(time2==0)time2=1;
 		ratio = time / time2;
 		if (ratio >= 1.0f) {
 			ratio = 0.9999f;
@@ -1496,8 +1500,8 @@ void CG_Particle_OilParticle (qhandle_t pshader, centity_t *cent)
 
 	time = cg.time;
 	time2 = cg.time + cent->currentState.time;
-
-	ratio =(float)1 - ((float)time / (float)time2);
+	if(time2==0)time2=1;
+	ratio = (float)1 - ((float)time / (float)time2);
 
 	if (!pshader)
 		CG_Printf ("CG_Particle_OilParticle == ZERO!\n");

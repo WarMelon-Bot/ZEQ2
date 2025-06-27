@@ -491,6 +491,7 @@ CG_Aura_LerpSpikeSegment
 static void CG_Aura_LerpSpikeSegment( auraState_t *state, int spikeNr, int *start, int *end, float *progress_pct){
 	float length_pos, length_sofar;
 	int i, j;
+	float segLen;
 
 	// Map i onto the circumference of the convex hull.
 	length_pos = state->convexHullCircumference *((float)spikeNr / (float)(NR_AURASPIKES - 1));
@@ -505,10 +506,13 @@ static void CG_Aura_LerpSpikeSegment( auraState_t *state, int spikeNr, int *star
 		j = 0;
 	}
 
+	segLen = state->convexHull[i].length;
+	if(segLen == 0.0f)segLen = 1.0f;
+	*progress_pct = (length_pos - length_sofar) / segLen;
+
 	// Return found values.
 	*start = i;
 	*end = j;
-	*progress_pct = (length_pos - length_sofar) / state->convexHull[i].length;
 }
 
 
@@ -757,6 +761,7 @@ static void CG_Aura_AddDLight( centity_t *player, auraState_t *state, auraConfig
 CG_Aura_DimLight
 ==================*/
 static void CG_Aura_DimLight( centity_t *player, auraState_t *state, auraConfig_t *config){
+	float denom;
 
 	if(state->isActive){
 
@@ -780,7 +785,9 @@ static void CG_Aura_DimLight( centity_t *player, auraState_t *state, auraConfig_
 		}
 	}
 
-	state->modulate = (float)(state->lightAmt - config->lightMin) / (float)(config->lightMax - config->lightMin);
+	denom = (float)(config->lightMax - config->lightMin);
+	if(denom == 0.0f)denom = 1.0f;
+	state->modulate = (float)(state->lightAmt - config->lightMin) / denom;
 	if(state->modulate < 0   ) state->modulate = 0;
 	if(state->modulate > 1.0f) state->modulate = 1.0f;
 }
