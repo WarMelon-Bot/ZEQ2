@@ -533,6 +533,12 @@ void UI_PlayerInfo_SetModel( playerInfo_t *pi, const char *model );
 void UI_PlayerInfo_SetInfo( playerInfo_t *pi, int legsAnim, int torsoAnim, vec3_t viewAngles, vec3_t moveAngles, weapon_t weaponNum, qboolean chat );
 qboolean UI_RegisterClientModelname( playerInfo_t *pi, const char *modelSkinName );
 
+// Model cache functions
+void UI_ClearModelCache( void );
+void UI_GetModelCacheStats( int *hits, int *misses, int *total );
+void UI_PrintModelCacheStats( void );
+void UI_ModelCache_f( void );
+
 //
 // ui_atoms.c
 //
@@ -741,5 +747,8 @@ void UI_SPUnlock_f( void );
 void UI_SPUnlockMedals_f( void );
 
 void UI_InitGameinfo( void );
+
+void trap_S_StartBackgroundTrack(const char *intro, const char *loop);
+void trap_S_StopBackgroundTrack(void);
 
 #endif

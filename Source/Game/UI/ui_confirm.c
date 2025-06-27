@@ -119,8 +119,12 @@ MessaheMenu_Draw
 =================
 */
 static void MessageMenu_Draw( void ) {
+	static const char *empty_lines[] = { "", NULL };
 	int i,y;
-	
+	// Null check for s_confirm.lines
+	if(!s_confirm.lines){
+		s_confirm.lines = empty_lines;
+	}
 	UI_DrawNamedPic( 142, 118, 359, 256, ART_CONFIRM_FRAME );
 	
 	y = 188;
@@ -145,6 +149,10 @@ ConfirmMenu_Draw
 static void ConfirmMenu_Draw( void ) {
 	uis.menuamount = 0;
 	UI_DrawNamedPic( 142, 118, 359, 256, ART_CONFIRM_FRAME );
+	// Null check for s_confirm.question
+	if(!s_confirm.question){
+		s_confirm.question = "";
+	}
 	UI_DrawProportionalString( 320, 204, s_confirm.question, UI_CENTER|UI_INVERSE|UI_DROPSHADOW, color_white );
 	UI_DrawProportionalString( s_confirm.slashX, 265, "/", UI_LEFT|UI_INVERSE|UI_DROPSHADOW, color_white );
 
@@ -190,6 +198,10 @@ void UI_ConfirmMenu_Style( const char *question, int style, void (*draw)( void )
 	l3 = l2 + n3;
 	s_confirm.slashX = l2;
 
+	// Null check for question
+	if(!question){
+		question = "";
+	}
 	s_confirm.question = question;
 	s_confirm.draw = draw;
 	s_confirm.action = action;
@@ -251,6 +263,7 @@ hacked over from Confirm stuff
 =================
 */
 void UI_Message( const char **lines ) {
+	static const char *empty_lines[] = { "", NULL };
 	uiClientState_t	cstate;
 	int n1, l1;
 	
@@ -262,6 +275,10 @@ void UI_Message( const char **lines ) {
 	n1 = UI_ProportionalStringWidth( "OK" );
 	l1 = 320 - ( n1 / 2 );
 	
+	// Null check for lines
+	if(!lines){
+		lines = empty_lines;
+	}
 	s_confirm.lines = lines;
 	s_confirm.style = UI_CENTER|UI_INVERSE|UI_SMALLFONT;
 

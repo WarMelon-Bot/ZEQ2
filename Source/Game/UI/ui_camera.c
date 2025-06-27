@@ -163,28 +163,25 @@ Camera_MenuEvent
 =================
 */
 static void Camera_MenuEvent( void* ptr, int event ) {
-
 	switch( ((menucommon_s*)ptr)->id ) {
-	{
-		case ID_BACK:
-			if (event == QM_ACTIVATED)
-			{
-				if (s_camera.changesMade)
-					Camera_SetConfig();
-				UI_PopMenu();
-			}
-			break;
-		case ID_RANGE:
-		case ID_HEIGHT:
-		case ID_SLIDE:
-		case ID_ANGLE:
-			if (event == QM_ACTIVATED)
-			{
-				s_camera.changesMade = qtrue;
+	case ID_BACK:
+		if (event == QM_ACTIVATED)
+		{
+			if (s_camera.changesMade)
 				Camera_SetConfig();
-			}
-			break;
+			UI_PopMenu();
 		}
+		break;
+	case ID_RANGE:
+	case ID_HEIGHT:
+	case ID_SLIDE:
+	case ID_ANGLE:
+		if (event == QM_ACTIVATED)
+		{
+			s_camera.changesMade = qtrue;
+			Camera_SetConfig();
+		}
+		break;
 	}
 }
 

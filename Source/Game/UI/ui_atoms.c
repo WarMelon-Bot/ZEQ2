@@ -817,6 +817,7 @@ qboolean UI_IsFullscreen( void ) {
 	return qfalse;
 }
 
+#if 0
 static void NeedCDAction( qboolean result ) {
 	if ( !result ) {
 		trap_Cmd_ExecuteText( EXEC_APPEND, "quit\n" );
@@ -828,6 +829,7 @@ static void NeedCDKeyAction( qboolean result ) {
 		trap_Cmd_ExecuteText( EXEC_APPEND, "quit\n" );
 	}
 }
+#endif
 
 void UI_SetActiveMenu( uiMenuCommand_t menu ) {
 	// this should be the ONLY way the menu system is brought up
@@ -1029,6 +1031,10 @@ qboolean UI_ConsoleCommand( int realTime ) {
 		UI_Cache_f();
 		return qtrue;
 	}
+	if ( Q_stricmp (cmd, "ui_modelcache") == 0 ) {
+		UI_ModelCache_f();
+		return qtrue;
+	}
 #if MAPLENSFLARES	// JUHOX: commands for map lens flares
 	if (Q_stricmp(cmd, "lfedit") == 0) {
 		UI_LFEdit_f();
@@ -1054,6 +1060,9 @@ UI_Init
 void UI_Init( void ) {
 	UI_RegisterCvars();
 	UI_InitGameinfo();
+
+	// Initialize model cache
+	UI_ClearModelCache();
 
 	// cache redundant calulations
 	trap_GetGlconfig( &uis.glconfig );

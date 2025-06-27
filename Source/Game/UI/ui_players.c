@@ -24,7 +24,6 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 
 #include "ui_local.h"
 
-
 #define UI_TIMER_GESTURE		2300
 #define UI_TIMER_JUMP			1000
 #define UI_TIMER_LAND			130
@@ -39,6 +38,35 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 
 #define SPIN_SPEED				0.9f
 #define COAST_TIME				1000
+
+#define MAX_CACHED_MODELS		32
+#define MAX_CACHED_ANIMATIONS	32
+
+typedef struct {
+	char			modelName[MAX_QPATH];
+	char			skinName[MAX_QPATH];
+	qhandle_t		legsModel;
+	qhandle_t		torsoModel;
+	qhandle_t		headModel;
+	qhandle_t		legsSkin;
+	qhandle_t		torsoSkin;
+	qhandle_t		headSkin;
+	animation_t		animations[MAX_ANIMATIONS];
+	qboolean		hasAnimations;
+	qboolean		fixedlegs;
+	qboolean		fixedtorso;
+	qboolean		overrideHead;
+	int				lastUsed;
+} cachedModel_t;
+
+// Prototypes for cache helpers (now after typedef)
+static cachedModel_t *UI_FindCachedModel(const char *modelName, const char *skinName);
+static cachedModel_t *UI_AddCachedModel(const char *modelName, const char *skinName);
+
+static cachedModel_t	modelCache[MAX_CACHED_MODELS];
+static int			cacheIndex = 0;
+static int			cacheHits = 0;
+static int			cacheMisses = 0;
 
 
 static int			dp_realtime;
@@ -274,6 +302,7 @@ static void UI_LegsSequencing( playerInfo_t *pi ) {
 UI_PositionEntityOnTag
 ======================
 */
+#if 0
 static void UI_PositionEntityOnTag( refEntity_t *entity, const refEntity_t *parent, 
 							clipHandle_t parentModel, char *tagName ) {
 	int				i;
@@ -293,6 +322,7 @@ static void UI_PositionEntityOnTag( refEntity_t *entity, const refEntity_t *pare
 	MatrixMultiply( lerped.axis, ((refEntity_t*)parent)->axis, entity->axis );
 	entity->backlerp = parent->backlerp;
 }
+#endif
 
 
 /*
@@ -1354,6 +1384,7 @@ qboolean UI_RegisterClientModelname( playerInfo_t *pi, const char *modelSkinName
 	char		skinName[MAX_QPATH];
 	char		filename[MAX_QPATH];
 	char		*slash;
+	cachedModel_t *cache;
 
 	pi->torsoModel = 0;
 	pi->headModel = 0;
@@ -1373,6 +1404,26 @@ qboolean UI_RegisterClientModelname( playerInfo_t *pi, const char *modelSkinName
 		// truncate modelName
 		*slash = 0;
 	}
+
+	// Check cache first
+	cache = UI_FindCachedModel( modelName, skinName );
+	if ( cache ) {
+		// Use cached data
+		pi->legsModel = cache->legsModel;
+		pi->torsoModel = cache->torsoModel;
+		pi->headModel = cache->headModel;
+		pi->legsSkin = cache->legsSkin;
+		pi->torsoSkin = cache->torsoSkin;
+		pi->headSkin = cache->headSkin;
+		memcpy( pi->animations, cache->animations, sizeof( cache->animations ) );
+		pi->fixedlegs = cache->fixedlegs;
+		pi->fixedtorso = cache->fixedtorso;
+		pi->overrideHead = cache->overrideHead;
+		return qtrue;
+	}
+
+	// Not in cache, load and cache it
+	cache = UI_AddCachedModel( modelName, skinName );
 
 	// load cmodels before models so filecache works
 	
@@ -1417,6 +1468,19 @@ qboolean UI_RegisterClientModelname( playerInfo_t *pi, const char *modelSkinName
 		//Com_Printf( "Failed to load animation file %s\n", filename );
 		return qfalse;
 	}
+
+	// Cache the loaded data
+	cache->legsModel = pi->legsModel;
+	cache->torsoModel = pi->torsoModel;
+	cache->headModel = pi->headModel;
+	cache->legsSkin = pi->legsSkin;
+	cache->torsoSkin = pi->torsoSkin;
+	cache->headSkin = pi->headSkin;
+	memcpy( cache->animations, pi->animations, sizeof( cache->animations ) );
+	cache->hasAnimations = qtrue;
+	cache->fixedlegs = pi->fixedlegs;
+	cache->fixedtorso = pi->fixedtorso;
+	cache->overrideHead = pi->overrideHead;
 
 	return qtrue;
 }
@@ -1561,4 +1625,107 @@ void UI_PlayerInfo_SetInfo( playerInfo_t *pi, int legsAnim, int torsoAnim, vec3_
 		UI_ForceTorsoAnim( pi, torsoAnim );
 	}
 
+}
+
+/*
+======================
+UI_ClearModelCache
+======================
+*/
+void UI_ClearModelCache( void ) {
+	memset( modelCache, 0, sizeof( modelCache ) );
+	cacheIndex = 0;
+	cacheHits = 0;
+	cacheMisses = 0;
+}
+
+/*
+======================
+UI_FindCachedModel
+======================
+*/
+static cachedModel_t *UI_FindCachedModel( const char *modelName, const char *skinName ) {
+	int i;
+	
+	for ( i = 0; i < MAX_CACHED_MODELS; i++ ) {
+		if ( modelCache[i].legsModel && 
+			 !Q_stricmp( modelCache[i].modelName, modelName ) &&
+			 !Q_stricmp( modelCache[i].skinName, skinName ) ) {
+			modelCache[i].lastUsed = dp_realtime;
+			cacheHits++;
+			return &modelCache[i];
+		}
+	}
+	
+	cacheMisses++;
+	return NULL;
+}
+
+/*
+======================
+UI_AddCachedModel
+======================
+*/
+static cachedModel_t *UI_AddCachedModel( const char *modelName, const char *skinName ) {
+	cachedModel_t *cache;
+	
+	// Find oldest entry or empty slot
+	cache = &modelCache[cacheIndex];
+	cacheIndex = ( cacheIndex + 1 ) % MAX_CACHED_MODELS;
+	
+	// Clear the slot
+	memset( cache, 0, sizeof( *cache ) );
+	
+	// Set model info
+	Q_strncpyz( cache->modelName, modelName, sizeof( cache->modelName ) );
+	Q_strncpyz( cache->skinName, skinName, sizeof( cache->skinName ) );
+	cache->lastUsed = dp_realtime;
+	
+	return cache;
+}
+
+/*
+======================
+UI_GetModelCacheStats
+======================
+*/
+void UI_GetModelCacheStats( int *hits, int *misses, int *total ) {
+	*hits = cacheHits;
+	*misses = cacheMisses;
+	*total = cacheHits + cacheMisses;
+}
+
+/*
+======================
+UI_PrintModelCacheStats
+======================
+*/
+void UI_PrintModelCacheStats( void ) {
+	int hits, misses, total;
+	UI_GetModelCacheStats( &hits, &misses, &total );
+	if ( total > 0 ) {
+		Com_Printf( "Model cache: %d hits, %d misses (%.1f%% hit rate)\n", 
+			hits, misses, (float)hits / total * 100.0f );
+	}
+}
+
+/*
+======================
+UI_ModelCache_f
+======================
+*/
+void UI_ModelCache_f( void ) {
+	if ( trap_Argc() < 2 ) {
+		UI_PrintModelCacheStats();
+		return;
+	}
+	
+	if ( !Q_stricmp( UI_Argv( 1 ), "clear" ) ) {
+		UI_ClearModelCache();
+		Com_Printf( "Model cache cleared.\n" );
+	} else if ( !Q_stricmp( UI_Argv( 1 ), "stats" ) ) {
+		UI_PrintModelCacheStats();
+	} else {
+		Com_Printf( "Usage: ui_modelcache [clear|stats]\n" );
+	}
 }
