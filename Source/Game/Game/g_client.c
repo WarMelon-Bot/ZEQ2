@@ -662,10 +662,40 @@ void ClientUserinfoChanged( int clientNum ) {
 	Q_strncpyz( headModel, Info_ValueForKey (userinfo, "headmodel"), sizeof( headModel ) );
 	Q_strncpyz( legsModel, Info_ValueForKey (userinfo, "legsmodel"), sizeof( legsModel ) );
 	if(strcmp(model,ent->modelName)){
-		if(client->ps.powerLevel[plHealth]>0){shouldRespawn = 1;}
-		if(((float)client->ps.powerLevel[plHealth]/(float)client->ps.powerLevel[plMaximum])<0.75){shouldRespawn = 2;}
+		if(client->ps.powerLevel[plHealth]>0){
+			Q_strncpyz(client->pendingModel,model,sizeof(client->pendingModel));
+			Q_strncpyz(model,ent->modelName,sizeof(model));
+		}else{
+			Q_strncpyz(client->pendingModel,"",sizeof(client->pendingModel));
+		}
+	}
+	if(strcmp(headModel,client->headModelName)){
+		if(client->ps.powerLevel[plHealth]>0){
+			Q_strncpyz(client->pendingHeadModel,headModel,sizeof(client->pendingHeadModel));
+			Q_strncpyz(headModel,client->headModelName,sizeof(headModel));
+			trap_GetUserinfo(clientNum, userinfo, sizeof(userinfo));
+			Info_SetValueForKey(userinfo, "headmodel", client->headModelName);
+			trap_SetUserinfo(clientNum, userinfo);
+			return;
+		}else{
+			Q_strncpyz(client->pendingHeadModel,"",sizeof(client->pendingHeadModel));
+		}
+	}
+	if(strcmp(legsModel,client->legsModelName)){
+		if(client->ps.powerLevel[plHealth]>0){
+			Q_strncpyz(client->pendingLegsModel,legsModel,sizeof(client->pendingLegsModel));
+			Q_strncpyz(legsModel,client->legsModelName,sizeof(legsModel));
+			trap_GetUserinfo(clientNum, userinfo, sizeof(userinfo));
+			Info_SetValueForKey(userinfo, "legsmodel", client->legsModelName);
+			trap_SetUserinfo(clientNum, userinfo);
+			return;
+		}else{
+			Q_strncpyz(client->pendingLegsModel,"",sizeof(client->pendingLegsModel));
+		}
 	}
 	Q_strncpyz(ent->modelName,model,sizeof(ent->modelName));
+	Q_strncpyz(client->headModelName,headModel,sizeof(client->headModelName));
+	Q_strncpyz(client->legsModelName,legsModel,sizeof(client->legsModelName));
 	// set max powerLevel
 	handicap = atoi( Info_ValueForKey( userinfo, "handicap" ) );
 	client->playerEntity = ent;
@@ -753,14 +783,14 @@ void ClientUserinfoChanged( int clientNum ) {
 	if (ent->r.svFlags & SVF_BOT)
 	{
 		s = va("n\\%s\\t\\%i\\model\\%s\\hmodel\\%s\\lmodel\\%s\\c1\\%s\\c2\\%s\\hc\\%i\\w\\%i\\l\\%i\\skill\\%s\\tt\\%d\\tl\\%d",
-			client->pers.netname, team, model, headModel,legsModel, c1, c2, 
+			client->pers.netname, team, ent->modelName, client->headModelName, client->legsModelName, c1, c2, 
 			client->pers.maxHealth, client->sess.wins, client->sess.losses,
 			Info_ValueForKey( userinfo, "skill" ), teamTask, teamLeader );
 	}
 	else
 	{
 		s = va("n\\%s\\guid\\%s\\t\\%i\\model\\%s\\hmodel\\%s\\lmodel\\%s\\g_redteam\\%s\\g_blueteam\\%s\\c1\\%s\\c2\\%s\\hc\\%i\\w\\%i\\l\\%i\\tt\\%d\\tl\\%d",
-			client->pers.netname, guid, client->sess.sessionTeam, model, headModel, legsModel,redTeam, blueTeam, c1, c2, 
+			client->pers.netname, guid, client->sess.sessionTeam, ent->modelName, client->headModelName, client->legsModelName,redTeam, blueTeam, c1, c2, 
 			client->pers.maxHealth, client->sess.wins, client->sess.losses, teamTask, teamLeader);
 	}
 	client->ps.powerLevel[plTierCurrent] = 0;
@@ -1118,6 +1148,32 @@ void ClientSpawn(gentity_t *ent) {
 
 	// Clear lock-on state for all clients targeting this client
 	G_ClearLockonState(ent-g_entities);
+
+	// After respawn logic, apply pending model/headmodel/legsmodel if set
+	if(client->pendingModel[0]&&strcmp(client->pendingModel,ent->modelName)){
+		Q_strncpyz(ent->modelName,client->pendingModel,sizeof(ent->modelName));
+		Q_strncpyz(client->pendingModel,"",sizeof(client->pendingModel));
+		trap_GetUserinfo(index,userinfo,sizeof(userinfo));
+		Info_SetValueForKey(userinfo,"model",ent->modelName);
+		trap_SetUserinfo(index,userinfo);
+		ClientUserinfoChanged(index);
+	}
+	if(client->pendingHeadModel[0]&&strcmp(client->pendingHeadModel,client->headModelName)){
+		Q_strncpyz(client->headModelName,client->pendingHeadModel,sizeof(client->headModelName));
+		Q_strncpyz(client->pendingHeadModel,"",sizeof(client->pendingHeadModel));
+		trap_GetUserinfo(index,userinfo,sizeof(userinfo));
+		Info_SetValueForKey(userinfo,"headmodel",client->headModelName);
+		trap_SetUserinfo(index,userinfo);
+		ClientUserinfoChanged(index);
+	}
+	if(client->pendingLegsModel[0]&&strcmp(client->pendingLegsModel,client->legsModelName)){
+		Q_strncpyz(client->legsModelName,client->pendingLegsModel,sizeof(client->legsModelName));
+		Q_strncpyz(client->pendingLegsModel,"",sizeof(client->pendingLegsModel));
+		trap_GetUserinfo(index,userinfo,sizeof(userinfo));
+		Info_SetValueForKey(userinfo,"legsmodel",client->legsModelName);
+		trap_SetUserinfo(index,userinfo);
+		ClientUserinfoChanged(index);
+	}
 }
 
 

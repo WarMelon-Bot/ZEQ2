@@ -251,6 +251,20 @@ void PM_CheckKnockback(void){
 			speed /= 2;
 		}
 		VectorScale(pm->ps->velocity,speed,pm->ps->velocity);
+		/* Clamp knockback velocity */
+		{
+			float xy, maxXY, maxZ;
+			maxXY = 1000.0f;
+			maxZ = 800.0f;
+			xy = sqrt(pm->ps->velocity[0]*pm->ps->velocity[0]+pm->ps->velocity[1]*pm->ps->velocity[1]);
+			if(xy>maxXY){
+				float scale= maxXY/xy;
+				pm->ps->velocity[0]*=scale;
+				pm->ps->velocity[1]*=scale;
+			}
+			if(pm->ps->velocity[2]>maxZ){pm->ps->velocity[2]=maxZ;}
+			else if(pm->ps->velocity[2]<-maxZ){pm->ps->velocity[2]=-maxZ;}
+		}
 		PM_StepSlideMove(qfalse);
 		VectorNormalize2(pm->ps->velocity,post_vel);
 		if(PM_CheckDirection(direction,qfalse)){PM_Crash(vertical);}

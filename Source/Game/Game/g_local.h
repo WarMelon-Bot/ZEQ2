@@ -340,6 +340,11 @@ extern struct gclient_s {
 	char		*modelName;
 	tierConfig_g tiers[8];
 	
+	char		pendingModel[MAX_QPATH]; // queued model change, applied on respawn
+	char		pendingHeadModel[MAX_QPATH]; // queued headmodel change, applied on respawn
+	char		pendingLegsModel[MAX_QPATH]; // queued legsmodel change, applied on respawn
+	char		headModelName[MAX_QPATH]; // current head model name
+	char		legsModelName[MAX_QPATH]; // current legs model name
 	// END ADDING
 
 	int			switchTeamTime;		// time the player switched teams
