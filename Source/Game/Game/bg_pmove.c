@@ -116,7 +116,10 @@ void PM_Impede(void){
 		pm->ps->timers[tmImpede] -= pml.msec;
 		if(pm->ps->timers[tmImpede] <= 0){pm->ps->timers[tmImpede] = 0;}
 		if(usingJump && (pm->ps->weaponstate == WEAPON_CHARGING || pm->ps->weaponstate == WEAPON_ALTCHARGING)){pm->ps->bitFlags = usingFlight;}
-		VectorClear(pm->ps->velocity);
+		// Only clear velocity if not being knocked back
+		if(pm->ps->timers[tmKnockback] <= 0){
+			VectorClear(pm->ps->velocity);
+		}
 		PM_StopDirections();
 		PM_StopZanzoken();
 	}
@@ -1136,11 +1139,15 @@ void PM_FlyMove(void){
 	float	fadeSpeed;
 	float	scale;
 	float	boostFactor;
+	if(pm->ps->timers[tmKnockback] > 0){
+		pm->ps->bitFlags &= ~usingSoar;
+		pm->ps->bitFlags &= ~isPreparing;
+		return;
+	}
 	if(!(pm->ps->states & canFly)){return;}
 	if(pm->cmd.upmove > 0){
 		pm->ps->bitFlags |= usingFlight;
-		PM_StopDash();
-		PM_StopJump();
+		
 	}
 	if(pm->cmd.buttons & BUTTON_POWERLEVEL && !VectorLength(pm->ps->velocity)){return;}
 	if(!(pm->ps->bitFlags & usingFlight) ||(pm->cmd.buttons & BUTTON_POWERLEVEL && !VectorLength(pm->ps->velocity))){return;}
