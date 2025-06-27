@@ -71,22 +71,32 @@ qboolean CG_RegisterClientModelnameWithTiers(clientInfo_t *ci, const char *model
 		Com_sprintf(filename, sizeof(filename), "players/%s/tier%i/body.zMesh", modelName, i+1);
 		if(ci->usingMD4 && trap_FS_FOpenFile(filename,0,FS_READ)>0){
 			ci->legsModel[i] = trap_R_RegisterModel(filename);
+			if(!ci->legsModel[i]){if(i==0){return qfalse;}else{ci->legsModel[i]=ci->legsModel[i-1];}}
 		}
 		else{
 			Com_sprintf(filename, sizeof(filename), "players/%s/tier%i/lower.md3", legsPath, i+1);
-			if(trap_FS_FOpenFile(filename,0,FS_READ)>0){ci->legsModel[i] = trap_R_RegisterModel(filename);}
+			if(trap_FS_FOpenFile(filename,0,FS_READ)>0){
+				ci->legsModel[i] = trap_R_RegisterModel(filename);
+				if(!ci->legsModel[i]){if(i==0){return qfalse;}else{ci->legsModel[i]=ci->legsModel[i-1];}}
+			}
 			else{
 				if(i == 0){return qfalse;}
 				else{ci->legsModel[i] = ci->legsModel[i - 1];}
 			}
 			Com_sprintf(filename, sizeof(filename), "players/%s/tier%i/upper.md3", modelName, i+1);
-			if(trap_FS_FOpenFile(filename,0,FS_READ)>0){ci->torsoModel[i] = trap_R_RegisterModel(filename);}
+			if(trap_FS_FOpenFile(filename,0,FS_READ)>0){
+				ci->torsoModel[i] = trap_R_RegisterModel(filename);
+				if(!ci->torsoModel[i]){if(i==0){return qfalse;}else{ci->torsoModel[i]=ci->torsoModel[i-1];}}
+			}
 			else{
 				if(i == 0){return qfalse;}
 				else{ci->torsoModel[i] = ci->torsoModel[i - 1];}
 			}
 			Com_sprintf(filename, sizeof(filename), "players/%s/tier%i/head.md3", headPath, i+1);
-			if(trap_FS_FOpenFile(filename,0,FS_READ)>0){ci->headModel[i] = trap_R_RegisterModel(filename);}
+			if(trap_FS_FOpenFile(filename,0,FS_READ)>0){
+				ci->headModel[i] = trap_R_RegisterModel(filename);
+				if(!ci->headModel[i]){if(i==0){return qfalse;}else{ci->headModel[i]=ci->headModel[i-1];}}
+			}
 			else{
 				if(i == 0){return qfalse;}
 				else{ci->headModel[i] = ci->headModel[i - 1];}
@@ -102,15 +112,24 @@ qboolean CG_RegisterClientModelnameWithTiers(clientInfo_t *ci, const char *model
 			strcpy(upperPrefix,"");
 		}
 		Com_sprintf(filename,sizeof(filename),"players/%s/tier%i/%s%s.skin",legsPath,i+1,skinName,lowerPrefix);
-		if(trap_FS_FOpenFile(filename,0,FS_READ)>0){ci->legsSkin[i] = trap_R_RegisterSkin(filename);}
+		if(trap_FS_FOpenFile(filename,0,FS_READ)>0){
+			ci->legsSkin[i] = trap_R_RegisterSkin(filename);
+			if(!ci->legsSkin[i]){if(i==0){return qfalse;}else{ci->legsSkin[i]=ci->legsSkin[i-1];}}
+		}
 		else if(i!=0){ci->legsSkin[i] = ci->legsSkin[i - 1];}
 		else{return qfalse;}
 		Com_sprintf(filename,sizeof(filename),"players/%s/tier%i/%s%s.skin",modelName,i+1,skinName,upperPrefix);
-		if(trap_FS_FOpenFile(filename,0,FS_READ)>0){ci->torsoSkin[i] = trap_R_RegisterSkin(filename);}
-		else if(i!=0){ci->torsoSkin[i] = ci->torsoSkin[i - 1];}	
+		if(trap_FS_FOpenFile(filename,0,FS_READ)>0){
+			ci->torsoSkin[i] = trap_R_RegisterSkin(filename);
+			if(!ci->torsoSkin[i]){if(i==0){return qfalse;}else{ci->torsoSkin[i]=ci->torsoSkin[i-1];}}
+		}
+		else if(i!=0){ci->torsoSkin[i] = ci->torsoSkin[i - 1];}
 		else{return qfalse;}
 		Com_sprintf(filename, sizeof(filename), "players/%s/tier%i/%s%s.skin", headPath, i+1,skinName,headPrefix);
-		if(trap_FS_FOpenFile(filename,0,FS_READ)>0){ci->headSkin[i] = trap_R_RegisterSkin(filename);}
+		if(trap_FS_FOpenFile(filename,0,FS_READ)>0){
+			ci->headSkin[i] = trap_R_RegisterSkin(filename);
+			if(!ci->headSkin[i]){if(i==0){return qfalse;}else{ci->headSkin[i]=ci->headSkin[i-1];}}
+		}
 		else if(i!=0){ci->headSkin[i] = ci->headSkin[i - 1];}
 		else{return qfalse;}
 		// ===================================

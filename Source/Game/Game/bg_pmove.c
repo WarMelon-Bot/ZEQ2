@@ -1317,13 +1317,19 @@ void PM_AirMove(void){
 		&& !(pm->ps->bitFlags & isUnconcious) && !(pm->ps->bitFlags & isDead) && !(pm->ps->bitFlags & isCrashed))){return;}
 	if(pm->ps->bitFlags & isGuiding){return;}
 	if(!(pm->ps->bitFlags & usingFlight)){
-		if((pm->ps->states & canBallFlip)){
+		if(pm->ps->states & canBallFlip){
+			/* Block ball flip if charging or firing */
 			if(pm->ps->bitFlags & usingJump && pm->cmd.upmove < 0){
-				pm->ps->gravity[2] = 3000;
-				pm->ps->bitFlags |= usingBallFlip;
-				PM_AddEvent(EV_BALLFLIP);
-				if(pm->ps->bitFlags & nearGround && pm->ps->velocity[2] < 0){PM_ContinueLegsAnim(ANIM_FLY_DOWN);}
-				else{PM_ContinueLegsAnim(ANIM_JUMP_FORWARD);}
+				if(pm->ps->weaponstate == WEAPON_CHARGING || pm->ps->weaponstate == WEAPON_ALTCHARGING || pm->ps->weaponstate == WEAPON_FIRING || pm->ps->weaponstate == WEAPON_ALTFIRING){
+					/* Do not allow flip: charging/firing takes priority, ignore flip input */
+					/* No-op: do not set usingBallFlip, do not add EV_BALLFLIP event */
+				}else{
+					pm->ps->gravity[2] = 3000;
+					pm->ps->bitFlags |= usingBallFlip;
+					PM_AddEvent(EV_BALLFLIP);
+					if(pm->ps->bitFlags & nearGround && pm->ps->velocity[2] < 0){PM_ContinueLegsAnim(ANIM_FLY_DOWN);}
+					else{PM_ContinueLegsAnim(ANIM_JUMP_FORWARD);}
+				}
 			}
 			else if(pm->ps->bitFlags & usingJump && pm->ps->bitFlags & usingBallFlip && pm->cmd.upmove == 0){
 				pm->ps->gravity[2] = 6000;
@@ -2715,11 +2721,17 @@ void PM_WeaponRelease(void){
 	pm->ps->stats[stChargePercentSecondary] = 0;
 }
 void PM_Weapon(void){
-	int	*weaponInfo;
-	int	*alt_weaponInfo;
+	int *weaponInfo;
+	int *alt_weaponInfo;
 	int chargeRate;
-	int costPrimary,costSecondary;
+	int costPrimary, costSecondary;
 	float energyScale;
+
+	// Block weapon actions if currently ball flipping
+	if(pm->ps->bitFlags & usingBallFlip){
+		PM_WeaponRelease();
+		return;
+	}
 	if(pm->ps->weaponstate != WEAPON_GUIDING){pm->ps->bitFlags &= ~isGuiding;}
 	if(pm->ps->persistant[PERS_TEAM] == TEAM_SPECTATOR){return;}
 	if(pm->ps->bitFlags & isStruggling || pm->ps->bitFlags & usingSoar
