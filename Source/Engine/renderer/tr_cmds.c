@@ -99,9 +99,11 @@ R_ShutdownCommandBuffers
 ====================
 */
 void R_ShutdownCommandBuffers( void ) {
-	// kill the rendering thread
+	// kill the rendering thread and wait for it before its condition
+	// variables and mutex are destroyed
 	if ( glConfig.smpActive ) {
 		GLimp_WakeRenderer( NULL );
+		GLimp_ShutdownRenderThread();
 		glConfig.smpActive = qfalse;
 	}
 }

@@ -3335,6 +3335,13 @@ static char *FindShaderInShaderText( const char *shadername ) {
 
 	hash = generateHashValue(shadername, MAX_SHADERTEXT_HASH);
 
+	// ScanAndLoadShaderFiles only allocates the hash table when shader files
+	// were found.  Without this check a clean (data-less) install dereferences
+	// a NULL bucket while looking up the built-in shaders.
+	if ( !shaderTextHashTable[hash] ) {
+		return NULL;
+	}
+
 	for (i = 0; shaderTextHashTable[hash][i]; i++) {
 		p = shaderTextHashTable[hash][i];
 		token = COM_ParseExt(&p, qtrue);
@@ -3895,6 +3902,12 @@ static void ScanAndLoadShaderFiles( void )
 	int shaderTextHashTableSizes[MAX_SHADERTEXT_HASH], hash, size;
 
 	long sum = 0, summand;
+
+	// Reset the lookup state first: the early-return path below must not leave
+	// stale pointers behind after a vid_restart or a missing data install.
+	Com_Memset( shaderTextHashTable, 0, sizeof( shaderTextHashTable ) );
+	s_shaderText = NULL;
+
 	// scan for shader files
 	shaderFiles = ri.FS_ListFiles( "scripts", ".shader", &numShaderFiles );
 

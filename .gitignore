@@ -1,6 +1,7 @@
 # Ignore build output directories
 /Build/
 /Source/Build/
+/Source/Build-*/
 
 # Ignore object files and compiler artifacts
 *.o
