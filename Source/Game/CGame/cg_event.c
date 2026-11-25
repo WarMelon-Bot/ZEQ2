@@ -79,16 +79,12 @@ CG_Obituary
 =============
 */
 static void CG_Obituary( entityState_t *ent ) {
-	int			mod;
 	int			target, attacker;
 	char		*message;
-	char		*message2;
 	const char	*targetInfo;
 	const char	*attackerInfo;
 	char		targetName[32];
 	char		attackerName[32];
-	gender_t	gender;
-	clientInfo_t	*ci;
 
 	if ( !cg_displayObituary.integer ) {
 		return;
@@ -96,13 +92,10 @@ static void CG_Obituary( entityState_t *ent ) {
 
 	target = ent->otherEntityNum;
 	attacker = ent->otherEntityNum2;
-	mod = ent->eventParm;
 
 	if ( target < 0 || target >= MAX_CLIENTS ) {
 		CG_Error( "CG_Obituary: target out of range" );
 	}
-	ci = &cgs.clientinfo[target];
-
 	if ( attacker < 0 || attacker >= MAX_CLIENTS ) {
 		attacker = ENTITYNUM_WORLD;
 		attackerInfo = NULL;
@@ -117,15 +110,9 @@ static void CG_Obituary( entityState_t *ent ) {
 	Q_strncpyz( targetName, Info_ValueForKey( targetInfo, "n" ), sizeof(targetName) - 2);
 	strcat( targetName, S_COLOR_WHITE );
 
-	message2 = "";
-
 	// check for single client messages
 
 	message = NULL;
-
-	if (attacker == target) {
-		gender = ci->gender;
-	}
 
 	if (message) {
 		CG_Printf( "%s %s.\n", targetName, message);
@@ -158,7 +145,6 @@ Also called by playerstate transition
 ================
 */
 void CG_PainEvent( centity_t *cent, int powerLevel ) {
-	char	*snd;
 	if ( cg.time - cent->pe.painTime < 500 ) {
 		return;
 	}
@@ -176,7 +162,7 @@ also called by CG_CheckPlayerstateEvents
 */
 #define	DEBUGNAME(x) if(cg_debugEvents.integer){CG_Printf(x"\n");}
 void CG_EntityEvent( centity_t *cent, vec3_t position ) {
-	entityState_t	*es,*nextState;
+	entityState_t	*es;
 	int				event;
 	vec3_t			dir;
 	const char		*s;
@@ -187,7 +173,6 @@ void CG_EntityEvent( centity_t *cent, vec3_t position ) {
 	r = random() * 10;
 
 	es = &cent->currentState;
-	nextState = &cent->nextState;
 	event = es->event & ~EV_EVENT_BITS;
 
 	if ( cg_debugEvents.integer ) {

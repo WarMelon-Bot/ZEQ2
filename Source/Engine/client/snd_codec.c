@@ -101,7 +101,7 @@ static snd_codec_t *S_FindCodecForFile(const char *filename)
 S_CodecInit
 =================
 */
-void S_CodecInit()
+void S_CodecInit( void )
 {
 	codecs = NULL;
 	S_CodecRegister(&wav_codec);
@@ -115,7 +115,7 @@ void S_CodecInit()
 S_CodecShutdown
 =================
 */
-void S_CodecShutdown()
+void S_CodecShutdown( void )
 {
 	codecs = NULL;
 }
@@ -148,7 +148,7 @@ void *S_CodecLoad(const char *filename, snd_info_t *info)
 		return NULL;
 	}
 
-	strncpy(fn, filename, sizeof(fn));
+	Q_strncpyz(fn, filename, sizeof(fn));
 	COM_DefaultExtension(fn, sizeof(fn), codec->ext);
 
 	return codec->load(fn, info);
@@ -171,7 +171,7 @@ snd_stream_t *S_CodecOpenStream(const char *filename)
 		return NULL;
 	}
 
-	strncpy(fn, filename, sizeof(fn));
+	Q_strncpyz(fn, filename, sizeof(fn));
 	COM_DefaultExtension(fn, sizeof(fn), codec->ext);
 
 	return codec->open(fn);

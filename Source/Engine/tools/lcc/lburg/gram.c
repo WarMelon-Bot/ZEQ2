@@ -1,7 +1,3 @@
-#ifndef lint
-static const char yysccsid[] = "@(#)yaccpar	1.9 (Berkeley) 02/21/93";
-#endif
-
 #define YYBYACC 1
 #define YYMAJOR 1
 #define YYMINOR 9
@@ -19,7 +15,7 @@ static const char yysccsid[] = "@(#)yaccpar	1.9 (Berkeley) 02/21/93";
 #line 2 "Engine/tools/lcc/lburg/gram.y"
 #include <stdio.h>
 #include "lburg.h"
-static char rcsid[] = "$Id: gram.y 145 2001-10-17 21:53:10Z timo $";
+
 /*lint -e616 -e527 -e652 -esym(552,yynerrs) -esym(563,yynewstate,yyerrlab) */
 static int yylineno = 0;
 #line 8 "Engine/tools/lcc/lburg/gram.y"

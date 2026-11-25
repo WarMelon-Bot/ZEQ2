@@ -868,36 +868,11 @@ SystemSettings_MenuInit
 */
 void SystemSettings_MenuInit( void )
 {
-	static const char *s_driver_names[] =
-	{
-		"Default",
-		"Voodoo",
-		NULL
-	};
-
 	static const char *tq_names[] =
 	{
 		"Default",
 		"16 bit",
 		"32 bit",
-		NULL
-	};
-
-	static const char *s_graphics_options_names[] =
-	{
-		"Very High Quality",
-		"High Quality",
-		"Normal",
-		"Fast",
-		"Fastest",
-		"Custom",
-		NULL
-	};
-
-	static const char *lighting_names[] =
-	{
-		"Lightmap",
-		"Vertex",
 		NULL
 	};
 
@@ -936,19 +911,6 @@ void SystemSettings_MenuInit( void )
 		NULL
 	};
 
-	static const char *vertexshader_names[] =
-	{
-		"Disabled",
-		"Enabled",
-		NULL
-	};
-	static const char *quality_names[] =
-	{
-		"Low",
-		"Medium",
-		"High",
-		NULL
-	};
 	static const char *enabled_names[] =
 	{
 		"Off",

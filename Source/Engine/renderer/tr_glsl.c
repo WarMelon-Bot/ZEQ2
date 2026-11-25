@@ -47,7 +47,7 @@ static glslProgram_t *R_GLSL_AllocProgram(void) {
 		return NULL;
 
 	program = ri.Hunk_Alloc(sizeof(*tr.programs[tr.numPrograms]), h_low);
-	Com_Memset(program, 0, sizeof(program));
+	Com_Memset(program, 0, sizeof(*program));
 
 	program->index							= tr.numPrograms;
 	program->u_AlphaGen						= -1;

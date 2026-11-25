@@ -887,8 +887,6 @@ Cmd_VoiceTaunt_f
 ==================
 */
 static void Cmd_VoiceTaunt_f( gentity_t *ent ) {
-	gentity_t *who;
-	int i;
 	if (!ent->client) {
 		return;
 	}

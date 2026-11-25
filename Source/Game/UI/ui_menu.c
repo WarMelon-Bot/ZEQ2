@@ -101,7 +101,6 @@ static void MainMenu_DrawName( void *self ) {
 	float			*color;
 	int				n;
 	int				basex, x, y;
-	char			name[32];
 
 	f = (menufield_s*)self;
 	txt = f->field.buffer;
@@ -215,8 +214,6 @@ TTimo: this function is common to the main menu and errorMessage menu
 */
 
 static void Main_MenuDraw( void ) {
-	char *result;
-	char segment[6400];
 	if(uis.menuamount != 3){
 		//trap_HTTPGet("http://zeq2.com/lite/forums/");		
 		//trap_Cvar_VariableStringBuffer("httpContents",segment,sizeof(segment));
@@ -240,7 +237,6 @@ and that local cinematics are killed
 ===============
 */
 void UI_MainMenu( void ) {
-	qboolean teamArena = qfalse;
 	int		style = UI_LEFT | UI_DROPSHADOW | UI_TINYFONT;
 
 	trap_S_StopBackgroundTrack();

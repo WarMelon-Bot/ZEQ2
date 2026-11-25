@@ -167,7 +167,6 @@ UI_LoadArenas
 */
 static void UI_LoadArenas( void ) {
 	int			numdirs;
-	vmCvar_t	arenasFile;
 	char		filename[128];
 	char		dirlist[2048];
 	char*		dirptr;
@@ -310,35 +309,6 @@ const char *UI_GetSpecialArenaInfo( const char *tag ) {
 	}
 
 	return NULL;
-}
-
-/*
-===============
-UI_LoadBotsFromFile
-===============
-*/
-static void UI_LoadBotsFromFile( char *filename ) {
-	int				len;
-	fileHandle_t	f;
-	char			buf[MAX_BOTS_TEXT];
-
-	len = trap_FS_FOpenFile( filename, &f, FS_READ );
-	if ( !f ) {
-		trap_Print( va( S_COLOR_RED "file not found: %s\n", filename ) );
-		return;
-	}
-	if ( len >= MAX_BOTS_TEXT ) {
-		trap_Print( va( S_COLOR_RED "file too large: %s is %i, max allowed is %i", filename, len, MAX_BOTS_TEXT ) );
-		trap_FS_FCloseFile( f );
-		return;
-	}
-
-	trap_FS_Read( buf, len, f );
-	buf[len] = 0;
-	trap_FS_FCloseFile( f );
-
-	ui_numBots += UI_ParseInfos( buf, MAX_BOTS - ui_numBots, &ui_botInfos[ui_numBots] );
-	if (outOfMemory) trap_Print(S_COLOR_YELLOW"WARNING: not anough memory in pool to load all bots\n");
 }
 
 /*

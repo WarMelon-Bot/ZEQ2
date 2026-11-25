@@ -340,8 +340,6 @@ void RE_RegisterFont(const char *fontName, int pointSize, fontInfo_t *font) {
   void *faceData;
 	int i, len;
   char name[1024];
-	float dpi = 72;											//
-	float glyphScale =  72.0f / dpi; 		// change the scale to be relative to 1 based on 72 dpi ( so dpi of 144 means a scale of .5 )
 
 
   if (!fontName) {
@@ -352,9 +350,6 @@ void RE_RegisterFont(const char *fontName, int pointSize, fontInfo_t *font) {
 	if (pointSize <= 0) {
 		pointSize = 12;
 	}
-	// we also need to adjust the scale based on point size relative to 48 points as the ui scaling is based on a 48 point font
-	glyphScale *= 48.0f / pointSize;
-
 	// make sure the render thread is stopped
 	R_SyncRenderThread();
 
@@ -407,6 +402,10 @@ void RE_RegisterFont(const char *fontName, int pointSize, fontInfo_t *font) {
 #ifndef BUILD_FREETYPE
     ri.Printf(PRINT_ALL, "RE_RegisterFont: FreeType code not available\n");
 #else
+  float dpi = 72;
+  float glyphScale = 72.0f / dpi;  // scale relative to a 72 dpi baseline
+  glyphScale *= 48.0f / pointSize; // UI scaling is based on a 48 point font
+
   if (ftLibrary == NULL) {
     ri.Printf(PRINT_ALL, "RE_RegisterFont: FreeType not initialized.\n");
     return;

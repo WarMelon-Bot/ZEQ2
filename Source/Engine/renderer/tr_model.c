@@ -26,7 +26,6 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #define	LL(x) x=LittleLong(x)
 
 static qboolean R_LoadMD3 (model_t *mod, int lod, void *buffer, int fileSize, const char *name );
-static qboolean R_LoadMD4 (model_t *mod, void *buffer, const char *name );
 static qboolean R_LoadMD4A (model_t *mod, void *buffer, int fileSize, const char *name );
 static qboolean R_LoadMD4B (model_t *mod, void *buffer, int fileSize, const char *name );
 #ifdef RAVENMD4
@@ -974,15 +973,13 @@ static qboolean R_LoadMDR( model_t *mod, void *buffer, int filesize, const char 
 
 static qboolean R_LoadMD4A( model_t *mod, void *buffer, int fileSize, const char *mod_name )
 {
-	int				i, j, k;
+	int				i, j;
 	md4aHeader_t		*pinmodel, *md4;
     md4aFrame_t		*frame;
 	md4aBoneName_t	*bones;
 	int				version;
 	int				size;
-	shader_t		*sh;
 	int				frameSize;
-	int				*cmap;
 
 	if ( fileSize < (int)sizeof( md4aHeader_t ) ) {
 		ri.Printf( PRINT_WARNING, "R_LoadMD4A: %s is shorter than its header\n", mod_name );
@@ -1028,7 +1025,7 @@ static qboolean R_LoadMD4A( model_t *mod, void *buffer, int fileSize, const char
 	}
 
 	// swap all the frames
-	frameSize = (int)( &((md4aFrame_t *)0)->bones[ md4->numBones ] );
+	frameSize = (int)(intptr_t)( &((md4aFrame_t *)0)->bones[ md4->numBones ] );
 	if ( frameSize <= 0 ||
 		 md4->ofsFrames < (int)sizeof( md4aHeader_t ) ||
 		 md4->ofsBones < (int)sizeof( md4aHeader_t ) ||
@@ -1050,7 +1047,6 @@ static qboolean R_LoadMD4A( model_t *mod, void *buffer, int fileSize, const char
         }
 		for ( j = 0 ; j < md4->numBones * (sizeof( md4aBoneFrame_t ) / 4); j++ )
 		{
-			int k, l;
 			((float *)frame->bones)[j] = LittleFloat( ((float *)frame->bones)[j] );
 			//for(k=0; k < 3; k++)
 			//	for(l=0; l < 4; l++)
@@ -1083,7 +1079,6 @@ int				i, j, k;
 	int				version;
 	int				size;
 	shader_t		*sh;
-	int				frameSize;
 	int				*cmap;
 
 	if ( fileSize < (int)sizeof( md4bHeader_t ) ) {
@@ -1216,8 +1211,6 @@ int				i, j, k;
 				ri.Printf( PRINT_WARNING, "R_LoadMD4B: %s has an out of range vertex\n", mod_name );
 				return qfalse;
 			}
-			vec_t tmpWeight;
-			tmpWeight = 0.0;
 			v->normal[0] = LittleFloat(v->normal[0]);
 			v->normal[1] = LittleFloat(v->normal[1]);
 			v->normal[2] = LittleFloat(v->normal[2]);
@@ -1263,184 +1256,6 @@ int				i, j, k;
 	ri.Printf( PRINT_WARNING, "R_LoadMD4B: %s has %i surfs, %i bones\n", mod_name, md4->numSurfs, md4->numBones );
 	return qtrue;
 }
-/*
-=================
-R_LoadMD4
-=================
-*/
-static qboolean R_LoadMD4( model_t *mod, void *buffer, const char *mod_name )
-{
-	int				i, j, k;
-	md4Header_t		*pinmodel, *md4;
-    md4Frame_t		*frame;
-	md4BoneName_t	*bones;
-	md4Surface_t	*surf;
-	md4Vertex_t		*v;
-	md4Triangle_t	*tri;
-	int				version;
-	int				size;
-	shader_t		*sh;
-	int				frameSize;
-	int				*cmap;
-
-	pinmodel = (md4Header_t *)buffer;
-	ri.Printf( PRINT_WARNING, "R_LoadMD4:  Running\n");
-	version = LittleLong (pinmodel->version);
-	if (version != MD4_VERSION)
-	{
-		ri.Printf( PRINT_WARNING, "R_LoadMD4: %s has wrong version (%i should be %i)\n",
-				 mod_name, version, MD4_VERSION);
-		return qfalse;
-	}
-
-	mod->type = MOD_MD4;
-	size = LittleLong(pinmodel->ofsEnd);
-	mod->dataSize += size;
-	// The model cache stores MD4 variants behind a common md4bHeader_t
-	// pointer.  This legacy loader still works with the original MD4 layout,
-	// so convert the cached pointer back to its local view.
-	md4 = (md4Header_t *)(mod->md4 = (md4bHeader_t *)ri.Hunk_Alloc( size, h_low ));
-
-	Com_Memcpy(md4, buffer, size);
-
-    LL(md4->ident);
-    LL(md4->version);
-    LL(md4->numFrames);
-    LL(md4->numBones);
-    LL(md4->numSurfs);
-    LL(md4->ofsFrames);
-    LL(md4->ofsSurfs);
-    md4->ofsEnd = size;
-
-	if ( md4->numFrames < 1 ) {
-		ri.Printf( PRINT_WARNING, "R_LoadMD4: %s has no frames\n", mod_name );
-		return qfalse;
-	}
-
-    // we don't need to swap tags in the renderer, they aren't used
-    
-	// swap all the frames
-	frameSize = (size_t)( &((md4Frame_t *)0)->bones[ md4->numBones ] );
-    for ( i = 0 ; i < md4->numFrames ; i++, frame++) {
-	    frame = (md4Frame_t *) ( (byte *)md4 + md4->ofsFrames + i * frameSize );
-    	frame->radius = LittleFloat( frame->radius );
-        for ( j = 0 ; j < 3 ; j++ ) {
-            frame->bounds[0][j] = LittleFloat( frame->bounds[0][j] );
-            frame->bounds[1][j] = LittleFloat( frame->bounds[1][j] );
-	    	frame->localOrigin[j] = LittleFloat( frame->localOrigin[j] );
-        }
-		for ( j = 0 ; j < md4->numBones * sizeof( md4BoneFrame_t ) / 4 ; j++ )
-		{
-			((float *)frame->bones)[j] = LittleFloat( ((float *)frame->bones)[j] );
-		}
-	}
-
-	// swap all bones
-	bones = (md4BoneName_t *)((byte *)md4 + md4->numBones);
-	for(i=0;i<md4->numBones;i++,bones++)
-	{
-		LL(bones->flags);
-		LL(bones->parent);
-	}
-
-	// swap all the surfaces
-	surf = (md4Surface_t *) ( (byte *)md4 + md4->ofsSurfs );
-	for ( i = 0 ; i < md4->numSurfs ; i++)
-	{
-		LL(surf->ident);
-		LL(surf->shaderIndex);
-		LL(surf->lodBias);
-		LL(surf->minLod);
-		LL(surf->ofsHeader);
-		LL(surf->numVerts);
-		LL(surf->ofsVerts);
-		LL(surf->numTris);
-		LL(surf->ofsTris);
-		LL(surf->ofsCollapseMap);
-		LL(surf->ofsEnd);
-			
-		if ( surf->numVerts > SHADER_MAX_VERTEXES )
-		{
-			ri.Error (ERR_DROP, "R_LoadMD4: %s has more than %i verts on a surface (%i)",
-				mod_name, SHADER_MAX_VERTEXES, surf->numVerts );
-		}
-		if ( surf->numTris*3 > SHADER_MAX_INDEXES )
-		{
-			ri.Error (ERR_DROP, "R_LoadMD4: %s has more than %i triangles on a surface (%i)",
-				mod_name, SHADER_MAX_INDEXES / 3, surf->numTris );
-		}
-
-		// change to surface identifier
-		surf->ident = SF_MD4;
-
-		// lowercase the surface name so skin compares are faster
-		Q_strlwr( surf->name );
-		
-		// register the shaders
-		sh = R_FindShader( surf->shader, LIGHTMAP_NONE, qtrue );
-		if ( sh->defaultShader )
-		{
-			surf->shaderIndex = 0;
-		}
-		else
-		{
-			surf->shaderIndex = sh->index;
-		}
-
-		// swap all the triangles
-		tri = (md4Triangle_t *) ( (byte *)surf + surf->ofsTris );
-		for ( j = 0 ; j < surf->numTris ; j++, tri++ )
-		{
-			LL(tri->indexes[0]);
-			LL(tri->indexes[1]);
-			LL(tri->indexes[2]);
-		}
-
-		// swap all the vertexes
-		v = (md4Vertex_t *) ( (byte *)surf + surf->ofsVerts);
-		for ( j = 0 ; j < surf->numVerts ; j++ )
-		{
-			vec_t tmpWeight;
-			tmpWeight = 0.0;
-			v->normal[0] = LittleFloat(v->normal[0]);
-			v->normal[1] = LittleFloat(v->normal[1]);
-			v->normal[2] = LittleFloat(v->normal[2]);
-
-			v->texCoords[0] = LittleFloat(v->texCoords[0]);
-			v->texCoords[1] = LittleFloat(v->texCoords[1]);
-
-			LL(v->numWeights);
-
-			for ( k = 0 ; k < v->numWeights ; k++ )
-			{
-				LL(v->weights[k].boneIndex);
-				v->weights[k].boneWeight = LittleFloat(v->weights[k].boneWeight);
-				v->weights[k].offset[0]  = LittleFloat(v->weights[k].offset[0]);
-				v->weights[k].offset[1]  = LittleFloat(v->weights[k].offset[1]);
-				v->weights[k].offset[2]  = LittleFloat(v->weights[k].offset[2]);
-				v->weights[k].normalOffset[0]  = LittleFloat(v->weights[k].normalOffset[0]);
-				v->weights[k].normalOffset[1]  = LittleFloat(v->weights[k].normalOffset[1]);
-				v->weights[k].normalOffset[2]  = LittleFloat(v->weights[k].normalOffset[2]);
-				tmpWeight+=v->weights[k].boneWeight;
-			}
-			if(tmpWeight > 1.0) Com_Printf("Vert %i weights more than 1: %f\n",j,tmpWeight);
-			v = (md4Vertex_t *)&v->weights[v->numWeights];
-		}
-
-		// swap all collapse map indexes
-		cmap = (int *)((byte *)surf + surf->ofsCollapseMap);
-		for(j=0;j<surf->numVerts;j++)
-		{
-			LL(cmap[j]);
-		}
-
-		// find the next surface
-		surf = (md4Surface_t *)( (byte *)surf + surf->ofsEnd );
-	}
-
-	return qtrue;
-}
-
 
 //=============================================================================
 

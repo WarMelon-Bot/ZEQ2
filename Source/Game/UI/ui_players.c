@@ -179,28 +179,10 @@ static void UI_ForceTorsoAnim( playerInfo_t *pi, int anim ) {
 
 /*
 ===============
-UI_SetTorsoAnim
-===============
-*/
-static void UI_SetTorsoAnim( playerInfo_t *pi, int anim ) {
-	if ( pi->pendingTorsoAnim ) {
-		anim = pi->pendingTorsoAnim;
-		pi->pendingTorsoAnim = 0;
-	}
-
-	UI_ForceTorsoAnim( pi, anim );
-}
-
-
-/*
-===============
 UI_TorsoSequencing
 ===============
 */
 static void UI_TorsoSequencing( playerInfo_t *pi ) {
-	int		currentAnim;
-
-	currentAnim = pi->torsoAnim & ~ANIM_TOGGLEBIT;
 /*
 	if ( pi->weapon != pi->currentWeapon ) {
 		if ( currentAnim != ANIM_DROP ) {
@@ -266,32 +248,6 @@ static void UI_LegsSequencing( playerInfo_t *pi ) {
 		UI_SetLegsAnim( pi, ANIM_IDLE );
 		return;
 	}
-}
-
-
-/*
-======================
-UI_PositionEntityOnTag
-======================
-*/
-static void UI_PositionEntityOnTag( refEntity_t *entity, const refEntity_t *parent, 
-							clipHandle_t parentModel, char *tagName ) {
-	int				i;
-	orientation_t	lerped;
-	
-	// lerp the tag
-	trap_CM_LerpTag( &lerped, parentModel, parent->oldframe, parent->frame,
-		1.0 - parent->backlerp, tagName );
-
-	// FIXME: allow origin offsets along tag?
-	VectorCopy( parent->origin, entity->origin );
-	for ( i = 0 ; i < 3 ; i++ ) {
-		VectorMA( entity->origin, lerped.origin[i], parent->axis[i], entity->origin );
-	}
-
-	// cast away const because of compiler problems
-	MatrixMultiply( lerped.axis, ((refEntity_t*)parent)->axis, entity->axis );
-	entity->backlerp = parent->backlerp;
 }
 
 
@@ -449,7 +405,6 @@ static void UI_PlayerAnimation( playerInfo_t *pi,
 	// ADDING FOR ZEQ2
 	{
 		int				torsoAnimNum;
-		int				legsAnimNum;
 
 		// NOTE: Torso animations take precedence over leg animations when deciding which
 		//       head animation to play.
@@ -587,7 +542,6 @@ static void UI_PlayerAnimation( playerInfo_t *pi,
 		} else if ( ANIM_KI_ATTACK1_PREPARE <= torsoAnimNum && ANIM_KI_ATTACK6_ALT_FIRE >= torsoAnimNum ) {
 			UI_RunLerpFrame( pi, &pi->head, torsoAnimNum - ANIM_KI_ATTACK1_PREPARE + ANIM_KI_ATTACK1_PREPARE );
 		} else {
-			legsAnimNum = pi->legsAnim & ~ANIM_TOGGLEBIT;
 			if ( 0 ) {
 			} else {
 				UI_RunLerpFrame( pi, &pi->head, ANIM_IDLE );
@@ -803,10 +757,6 @@ UI_MachinegunSpinAngle
 ======================
 */
 float	UI_MachinegunSpinAngle( playerInfo_t *pi ) {
-	int		delta;
-	float	angle;
-	float	speed;
-	int		torsoAnim;
 /*
 	delta = dp_realtime - pi->barrelTime;
 	if ( pi->barrelSpinning ) {
@@ -831,7 +781,7 @@ float	UI_MachinegunSpinAngle( playerInfo_t *pi ) {
 		pi->barrelSpinning = !!(torsoAnim == ANIM_ATTACK);
 	}
 */
-	return angle;
+	return 0;
 }
 
 
@@ -845,9 +795,6 @@ void UI_DrawPlayer( float x, float y, float w, float h, playerInfo_t *pi, int ti
 	refEntity_t		legs;
 	refEntity_t		torso;
 	refEntity_t		head;
-	refEntity_t		gun;
-	refEntity_t		barrel;
-	refEntity_t		flash;
 	vec3_t			origin;
 	int				renderfx;
 	vec3_t			mins = {-16, -16, -24};
@@ -1053,9 +1000,6 @@ void UI_DrawPlayer_zMesh( float x, float y, float w, float h, playerInfo_t *pi, 
 	refEntity_t		legs;
 	refEntity_t		torso;
 	refEntity_t		head;
-	refEntity_t		gun;
-	refEntity_t		barrel;
-	refEntity_t		flash;
 	vec3_t			origin;
 	int				renderfx;
 	vec3_t			mins = {-16, -16, -24};
@@ -1204,7 +1148,6 @@ static qboolean UI_ParseAnimationFile( const char *filename, animation_t *animat
 	int			i;
 	char		*token;
 	float		fps;
-	int			skip;
 	char		text[20000];
 	fileHandle_t	f;
 
@@ -1226,7 +1169,6 @@ static qboolean UI_ParseAnimationFile( const char *filename, animation_t *animat
 
 	// parse the text
 	text_p = text;
-	skip = 0;	// quite the compiler warning
 
 	pi->fixedlegs = qfalse;
 	pi->fixedtorso = qfalse;

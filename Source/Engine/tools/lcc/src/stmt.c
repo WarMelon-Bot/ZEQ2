@@ -169,23 +169,26 @@ void statement(int loop, Swtch swp, int lev) {
 
 	case '{':      compound(loop, swp, lev + 1); break;
 	case ';':      definept(NULL); t = gettok(); break;
-	case GOTO:     walk(NULL, 0, 0);
-		       definept(NULL);
-		       t = gettok();
-		       if (t == ID) {
-		       	Symbol p = lookup(token, stmtlabs);
-		       	if (p == NULL) {
+	case GOTO:
+		walk(NULL, 0, 0);
+		definept(NULL);
+		t = gettok();
+		if (t == ID) {
+			Symbol p = lookup(token, stmtlabs);
+			if (p == NULL) {
 				p = install(token, &stmtlabs, 0, FUNC);
 				p->scope = LABELS;
 				p->u.l.label = genlabel(1);
 				p->src = src;
 			}
-		       	use(p, src);
-		       	branch(p->u.l.label);
-		       	t = gettok();
-		       } else
-		       	error("missing label in goto\n"); expect(';');
-					  break;
+			use(p, src);
+			branch(p->u.l.label);
+			t = gettok();
+		} else {
+			error("missing label in goto\n");
+		}
+		expect(';');
+		break;
 
 	case ID:       if (getchr() == ':') {
 		       	stmtlabel();

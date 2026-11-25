@@ -611,7 +611,7 @@ static void S_AL_ScaleGain(src_t *chksrc, vec3_t origin)
 		
 		scaleFactor *= chksrc->curGain;
 		
-		if(chksrc->scaleGain != scaleFactor);
+		if(chksrc->scaleGain != scaleFactor)
 		{
 			chksrc->scaleGain = scaleFactor;
 			S_AL_Gain(chksrc->alSource, chksrc->scaleGain);
@@ -1977,7 +1977,7 @@ void S_AL_StartBackgroundTrack( const char *intro, const char *loop )
 		issame = qfalse;
 
 	// Copy the loop over
-	strncpy( s_backgroundLoop, loop, sizeof( s_backgroundLoop ) );
+	Q_strncpyz( s_backgroundLoop, loop, sizeof( s_backgroundLoop ) );
 
 	if(!issame)
 	{
@@ -2378,14 +2378,17 @@ qboolean S_AL_Init( soundInterface_t *si )
 	{
 		char devicenames[1024] = "";
 		const char *devicelist;
+#ifdef _WIN32
 		const char *defaultdevice;
+#endif
 		int curlen;
 		
-		// get all available devices + the default device name.
+		// get all available devices.
 		devicelist = qalcGetString(NULL, ALC_DEVICE_SPECIFIER);
-		defaultdevice = qalcGetString(NULL, ALC_DEFAULT_DEVICE_SPECIFIER);
 
 #ifdef _WIN32
+		defaultdevice = qalcGetString(NULL, ALC_DEFAULT_DEVICE_SPECIFIER);
+
 		// check whether the default device is generic hardware. If it is, change to
 		// Generic Software as that one works more reliably with various sound systems.
 		// If it's not, use OpenAL's default selection as we don't want to ignore

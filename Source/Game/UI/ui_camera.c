@@ -87,29 +87,6 @@ static void Camera_InitCvars( void )
 
 /*
 =================
-Camera_GetCvarDefault
-=================
-*/
-static float Camera_GetCvarDefault( char* name )
-{
-	cameraconfigcvar_t*	cvarptr;
-	int				i;
-
-	cvarptr = g_cameraconfigcvars;
-	for (i=0; ;i++,cvarptr++)
-	{
-		if (!cvarptr->name)
-			return (0);
-
-		if (!strcmp(cvarptr->name,name))
-			break;
-	}
-
-	return (cvarptr->defaultvalue);
-}
-
-/*
-=================
 Camera_GetCvarValue
 =================
 */

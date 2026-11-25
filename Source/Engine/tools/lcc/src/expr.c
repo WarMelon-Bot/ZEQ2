@@ -155,33 +155,46 @@ static Tree unary(void) {
 						  else if (isaddrop(p->op))
 						  	p->u.sym->addressed = 1;
  break;
-	case '+':    t = gettok(); p = unary(); p = pointer(p);
-						  if (isarith(p->type))
-						  	p = cast(p, promote(p->type));
-						  else
-						  	typeerror(ADD, p, NULL);  break;
-	case '-':    t = gettok(); p = unary(); p = pointer(p);
-						  if (isarith(p->type)) {
-						  	Type ty = promote(p->type);
-						  	p = cast(p, ty);
-						  	if (isunsigned(ty)) {
-						  		warning("unsigned operand of unary -\n");
-						  		p = simplify(ADD, ty, simplify(BCOM, ty, p, NULL), cnsttree(ty, 1UL));
-						  	} else
-						  		p = simplify(NEG, ty, p, NULL);
-						  } else
-						  	typeerror(SUB, p, NULL); break;
-	case '~':    t = gettok(); p = unary(); p = pointer(p);
-						  if (isint(p->type)) {
-						  	Type ty = promote(p->type);
-						  	p = simplify(BCOM, ty, cast(p, ty), NULL);
-						  } else
-						  	typeerror(BCOM, p, NULL);  break;
-	case '!':    t = gettok(); p = unary(); p = pointer(p);
-						  if (isscalar(p->type))
-						  	p = simplify(NOT, inttype, cond(p), NULL);
-						  else
-						  	typeerror(NOT, p, NULL); break;
+	case '+':
+		t = gettok(); p = unary(); p = pointer(p);
+		if (isarith(p->type)) {
+			p = cast(p, promote(p->type));
+		} else {
+			typeerror(ADD, p, NULL);
+		}
+		break;
+	case '-':
+		t = gettok(); p = unary(); p = pointer(p);
+		if (isarith(p->type)) {
+			Type ty = promote(p->type);
+			p = cast(p, ty);
+			if (isunsigned(ty)) {
+				warning("unsigned operand of unary -\n");
+				p = simplify(ADD, ty, simplify(BCOM, ty, p, NULL), cnsttree(ty, 1UL));
+			} else {
+				p = simplify(NEG, ty, p, NULL);
+			}
+		} else {
+			typeerror(SUB, p, NULL);
+		}
+		break;
+	case '~':
+		t = gettok(); p = unary(); p = pointer(p);
+		if (isint(p->type)) {
+			Type ty = promote(p->type);
+			p = simplify(BCOM, ty, cast(p, ty), NULL);
+		} else {
+			typeerror(BCOM, p, NULL);
+		}
+		break;
+	case '!':
+		t = gettok(); p = unary(); p = pointer(p);
+		if (isscalar(p->type)) {
+			p = simplify(NOT, inttype, cond(p), NULL);
+		} else {
+			typeerror(NOT, p, NULL);
+		}
+		break;
 	case INCR:   t = gettok(); p = unary(); p = incr(INCR, pointer(p), consttree(1, inttype)); break;
 	case DECR:   t = gettok(); p = unary(); p = incr(DECR, pointer(p), consttree(1, inttype)); break;
 	case TYPECODE: case SIZEOF: { int op = t;
@@ -305,33 +318,39 @@ static Tree postfix(Tree p) {
 			    	t = gettok();
 			    	p = call(p, ty, pt);
 			    } break;
-		case '.':   t = gettok();
-			    if (t == ID) {
-			    	if (isstruct(p->type)) {
-			    		Tree q = addrof(p);
-			    		p = field(q, token);
-			    		q = rightkid(q);
-			    		if (isaddrop(q->op) && q->u.sym->temporary)
-			    			p = tree(RIGHT, p->type, p, NULL);
-			    	} else
-			    		error("left operand of . has incompatible type `%t'\n",
-			    			p->type);
-			    	t = gettok();
-			    } else
-			    	error("field name expected\n"); break;
-		case DEREF: t = gettok();
-			    p = pointer(p);
-			    if (t == ID) {
-			    	if (isptr(p->type) && isstruct(p->type->type)) {
-			    		if (YYnull)
-			    			p = nullcheck(p);
-			    		p = field(p, token);
-			    	} else
-			    		error("left operand of -> has incompatible type `%t'\n", p->type);
-
-			    	t = gettok();
-			    } else
-			    	error("field name expected\n"); break;
+		case '.':
+			t = gettok();
+			if (t == ID) {
+				if (isstruct(p->type)) {
+					Tree q = addrof(p);
+					p = field(q, token);
+					q = rightkid(q);
+					if (isaddrop(q->op) && q->u.sym->temporary)
+						p = tree(RIGHT, p->type, p, NULL);
+				} else {
+					error("left operand of . has incompatible type `%t'\n", p->type);
+				}
+				t = gettok();
+			} else {
+				error("field name expected\n");
+			}
+			break;
+		case DEREF:
+			t = gettok();
+			p = pointer(p);
+			if (t == ID) {
+				if (isptr(p->type) && isstruct(p->type->type)) {
+					if (YYnull)
+						p = nullcheck(p);
+					p = field(p, token);
+				} else {
+					error("left operand of -> has incompatible type `%t'\n", p->type);
+				}
+				t = gettok();
+			} else {
+				error("field name expected\n");
+			}
+			break;
 		default:
 			return p;
 		}

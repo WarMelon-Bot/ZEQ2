@@ -86,9 +86,7 @@ static const char *beamcontrol_names[] = {"Beam Head Focus","Crosshair Focus",0}
 static const char *camerastyle_names[] = {"Locked Behind Head","Locked Behind Character","Delay Behind Character",0};
 static const char *crosshairSize_names[] = {"Tiny!","Very Small","Small","Normal","Large","Extra Large!","Extra Extra Large?!",0};
 static const char *bloomQuality_names[] = {"Off","Low","Medium","High","Very High", 0};
-static const char *bloomIntensity_names[] = {"Low","Medium","High", 0};
 static const char *bloomDarken_names[] = {"Low","Medium","High", 0};
-static const char *bloomAlpha_names[] = {"Low","Medium","High", 0};
 static void Preferences_SetMenuItems( void ) {
 	s_preferences.crosshair.curvalue		= (int)trap_Cvar_VariableValue( "cg_drawCrosshair" ) % NUM_CROSSHAIRS;
 	s_preferences.camerastyle.curvalue		= Com_Clamp( 0, 2, trap_Cvar_VariableValue( "cg_thirdPersonCamera" ) );

@@ -76,6 +76,21 @@ static void CON_FlushIn( void )
 
 /*
 ==================
+CON_WriteChar
+
+Send one byte to stdout.  Console output is best effort; there is nothing
+useful we can do here if the write fails.
+==================
+*/
+static void CON_WriteChar( char c )
+{
+	if ( write( STDOUT_FILENO, &c, 1 ) != 1 ) {
+		// ignore failed console output
+	}
+}
+
+/*
+==================
 CON_Back
 
 Output a backspace
@@ -88,14 +103,13 @@ send "\b \b"
 static void CON_Back( void )
 {
 	char key;
-	size_t size;
 
 	key = '\b';
-	size = write(STDOUT_FILENO, &key, 1);
+	CON_WriteChar( key );
 	key = ' ';
-	size = write(STDOUT_FILENO, &key, 1);
+	CON_WriteChar( key );
 	key = '\b';
-	size = write(STDOUT_FILENO, &key, 1);
+	CON_WriteChar( key );
 }
 
 /*
@@ -146,13 +160,12 @@ static void CON_Show( void )
 		ttycon_hide--;
 		if (ttycon_hide == 0)
 		{
-			size_t size;
-			size = write(STDOUT_FILENO, "]", 1);
+			CON_WriteChar( ']' );
 			if (TTY_con.cursor)
 			{
 				for (i=0; i<TTY_con.cursor; i++)
 				{
-					size = write(STDOUT_FILENO, TTY_con.buffer+i, 1);
+					CON_WriteChar( TTY_con.buffer[i] );
 				}
 			}
 		}
@@ -329,7 +342,6 @@ char *CON_Input( void )
 	int avail;
 	char key;
 	field_t *history;
-	size_t size;
 
 	if(ttycon_on)
 	{
@@ -359,8 +371,8 @@ char *CON_Input( void )
 					Q_strncpyz(text, TTY_con.buffer, sizeof(text));
 					Field_Clear(&TTY_con);
 					key = '\n';
-					size = write(1, &key, 1);
-					size = write( 1, "]", 1 );
+					CON_WriteChar( key );
+					CON_WriteChar( ']' );
 					return text;
 				}
 				if (key == '\t')
@@ -424,7 +436,7 @@ char *CON_Input( void )
 			TTY_con.buffer[TTY_con.cursor] = key;
 			TTY_con.cursor++;
 			// print the current line (this is differential)
-			size = write(STDOUT_FILENO, &key, 1);
+			CON_WriteChar( key );
 		}
 
 		return NULL;

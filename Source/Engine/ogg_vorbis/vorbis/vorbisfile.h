@@ -72,33 +72,43 @@ static int _ov_header_fseek_wrap(FILE *f,ogg_int64_t off,int whence){
 
 #ifndef OV_EXCLUDE_STATIC_CALLBACKS
 
-static ov_callbacks OV_CALLBACKS_DEFAULT = {
+/* These convenience objects are deliberately provided in the header; not
+ * every translation unit that includes this header uses all of them. */
+#if defined(__GNUC__) || defined(__clang__)
+#define OV_CALLBACKS_UNUSED __attribute__((unused))
+#else
+#define OV_CALLBACKS_UNUSED
+#endif
+
+static ov_callbacks OV_CALLBACKS_DEFAULT OV_CALLBACKS_UNUSED = {
   (size_t (*)(void *, size_t, size_t, void *))  fread,
   (int (*)(void *, ogg_int64_t, int))           _ov_header_fseek_wrap,
   (int (*)(void *))                             fclose,
   (long (*)(void *))                            ftell
 };
 
-static ov_callbacks OV_CALLBACKS_NOCLOSE = {
+static ov_callbacks OV_CALLBACKS_NOCLOSE OV_CALLBACKS_UNUSED = {
   (size_t (*)(void *, size_t, size_t, void *))  fread,
   (int (*)(void *, ogg_int64_t, int))           _ov_header_fseek_wrap,
   (int (*)(void *))                             NULL,
   (long (*)(void *))                            ftell
 };
 
-static ov_callbacks OV_CALLBACKS_STREAMONLY = {
+static ov_callbacks OV_CALLBACKS_STREAMONLY OV_CALLBACKS_UNUSED = {
   (size_t (*)(void *, size_t, size_t, void *))  fread,
   (int (*)(void *, ogg_int64_t, int))           NULL,
   (int (*)(void *))                             fclose,
   (long (*)(void *))                            NULL
 };
 
-static ov_callbacks OV_CALLBACKS_STREAMONLY_NOCLOSE = {
+static ov_callbacks OV_CALLBACKS_STREAMONLY_NOCLOSE OV_CALLBACKS_UNUSED = {
   (size_t (*)(void *, size_t, size_t, void *))  fread,
   (int (*)(void *, ogg_int64_t, int))           NULL,
   (int (*)(void *))                             NULL,
   (long (*)(void *))                            NULL
 };
+
+#undef OV_CALLBACKS_UNUSED
 
 #endif
 

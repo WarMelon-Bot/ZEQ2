@@ -620,7 +620,6 @@ void RB_CalcColorFromOneMinusEntity( unsigned char *dstColors )
 	int	i;
 	int *pColors = ( int * ) dstColors;
 	unsigned char invModulate[4];
-	int c;
 
 	if ( !backEnd.currentEntity )
 		return;
@@ -629,8 +628,6 @@ void RB_CalcColorFromOneMinusEntity( unsigned char *dstColors )
 	invModulate[1] = 255 - backEnd.currentEntity->e.shaderRGBA[1];
 	invModulate[2] = 255 - backEnd.currentEntity->e.shaderRGBA[2];
 	invModulate[3] = 255 - backEnd.currentEntity->e.shaderRGBA[3];	// this trashes alpha, but the AGEN block fixes it
-
-	c = * ( int * ) invModulate;
 
 	for ( i = 0; i < tess.numVertexes; i++, pColors++ )
 	{
@@ -897,7 +894,7 @@ void RB_CalcHazeTexCoords( float *st ) {
 	float		*v;
 	float		s, t;
 	vec3_t		local;
-	vec4_t		hazeDistanceVector, hazeDepthVector;
+	vec4_t		hazeDistanceVector, hazeDepthVector = {0, 0, 0, 0};
 
 	// all fogging distance is based on world Z units
 	VectorSubtract( backEnd.or.origin, backEnd.viewParms.or.origin, local );
@@ -1340,14 +1337,13 @@ void RB_CalcUniformColor( unsigned char *colors )
 	normalize = NormalizeColor( uniformLight, uniformLight );
 	if ( normalize > 255 ) normalize = 255;
 	VectorScale( uniformLight, normalize, uniformLight );
-	uniformLight[3] = 255;
 
 	numVertexes = tess.numVertexes;
 	for (i = 0 ; i < numVertexes ; i++ ) {
 		colors[i*4+0] = uniformLight[0];
 		colors[i*4+1] = uniformLight[1];
 		colors[i*4+2] = uniformLight[2];
-		colors[i*4+3] = uniformLight[3];
+		colors[i*4+3] = 255;
 	}
 }
 
@@ -1371,13 +1367,12 @@ void RB_CalcDynamicColor( unsigned char *colors )
 	normalize = NormalizeColor( dynamic, dynamic );
 	if ( normalize > 255 ) normalize = 255;
 	VectorScale( dynamic, normalize, dynamic );
-	dynamic[3] = 255;
 
 	numVertexes = tess.numVertexes;
 	for (i = 0 ; i < numVertexes ; i++ ) {
 		colors[i*4+0] = dynamic[0];
 		colors[i*4+1] = dynamic[1];
 		colors[i*4+2] = dynamic[2];
-		colors[i*4+3] = dynamic[3];
+		colors[i*4+3] = 255;
 	}
 }

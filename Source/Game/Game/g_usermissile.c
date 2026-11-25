@@ -27,10 +27,7 @@ gentity_t *GetMissileOwnerEntity (gentity_t *missile) {
 // Prototypes
 void Think_NormalMissile (gentity_t *self);
 void Think_NormalMissileStruggle (gentity_t *self);
-static void Think_NormalMissileBurnPlayer (gentity_t *self);
-static void Think_NormalMissileRidePlayer (gentity_t *self);
 static void Think_NormalMissileStrugglePlayer (gentity_t *self);
-static void G_StruggleUserMissile( gentity_t *self, gentity_t *other );
 static void G_PushUserMissile( gentity_t *self, gentity_t *other );
 static void G_BounceUserMissile( gentity_t *self, trace_t *trace );
 void G_UserWeaponDamage(gentity_t *target,gentity_t *inflictor,gentity_t *attacker,vec3_t dir,vec3_t point,int damage,int dflags,int knockback);
@@ -418,12 +415,9 @@ Think_NormalMissileStruggle
 */
 void Think_NormalMissileStruggle (gentity_t *self) {
 	int			powerDifference;
-	int			speedDifference;
 	int			power1,power2;
-	int			speed1,speed2;
 	int			result;
-	vec3_t		forward,dir,dir2,start;
-	trace_t		*trace;
+	vec3_t		dir,dir2,start;
 	gentity_t	*missileOwner = GetMissileOwnerEntity( self );
 	self->s.dashDir[1] = missileOwner->client->ps.attackPowerCurrent = self->powerLevelCurrent;
 	if(self->powerLevelCurrent < 1){
@@ -453,11 +447,8 @@ void Think_NormalMissileStruggle (gentity_t *self) {
 			self->ally->speed += 5;
 		}
 	}
-	speed1 = self->speed;
-	speed2 = self->enemy->speed;
 	power1 = self->powerLevelCurrent;
 	power2 = self->enemy->powerLevelCurrent;
-	speedDifference = speed1-speed2;
 	powerDifference = power1-power2;
 	result = /*speedDifference +*/ powerDifference;
 	if(!self->enemy->strugglingAttack || !self->ally->strugglingAttack){
@@ -1475,40 +1466,6 @@ static void Think_NormalMissileStrugglePlayer( gentity_t *self ) {
 	}
 	self->nextthink = level.time + FRAMETIME;
 }
-static void Think_NormalMissileBurnPlayer( gentity_t *self ) {
-	vec3_t fwd;
-	gentity_t	*missileOwner = GetMissileOwnerEntity( self );
-	AngleVectors(self->enemy->r.currentAngles, fwd, NULL, NULL);
-	VectorNormalize(fwd);
-	G_HoldUserMissile(self,self->enemy);
-	self->s.dashDir[1] = missileOwner->client->ps.attackPowerCurrent = self->powerLevelCurrent;
-	self->bounceFrac = 0.0f;
-	self->enemy->client->ps.states |= isBurning;
-	self->enemy->client->ps.timers[tmBurning] += 100;
-	G_UserWeaponDamage(self->enemy,self,missileOwner,fwd,self->s.origin,self->powerLevelCurrent / 15.0,0,self->extraKnockback);
-	if(self->enemy->client->ps.timers[tmBurning] >= 1500){
-		self->freeAfterEvent = qtrue;
-		self->enemy->client->ps.states &= ~isBurning;
-	}
-	self->nextthink = level.time + FRAMETIME;
-}
-static void Think_NormalMissileRidePlayer( gentity_t *self ){
-	vec3_t fwd;
-	gentity_t	*missileOwner = GetMissileOwnerEntity( self );
-	AngleVectors(self->enemy->r.currentAngles, fwd, NULL, NULL);
-	VectorNormalize(fwd);
-	self->s.dashDir[1] = missileOwner->client->ps.attackPowerCurrent = self->powerLevelCurrent;
-	self->bounceFrac = 0.0f;
-	self->enemy->client->ps.states |= isRiding;
-	self->enemy->client->ps.timers[tmRiding] += 100;
-	G_UserWeaponDamage(self->enemy,self,missileOwner,fwd,self->s.origin,self->powerLevelCurrent / 25.0,0,self->extraKnockback);
-	if(self->enemy->client->ps.timers[tmRiding] >= 2500){
-		self->freeAfterEvent = qtrue;
-		self->enemy->client->ps.states &= ~isRiding;
-		//self->enemy->client->ps.states |= canRideEscape;
-	}
-	self->nextthink = level.time + FRAMETIME;
-}
 /* 
 ============
 G_LocationImpact
@@ -1542,9 +1499,7 @@ void G_LocationImpact(vec3_t point, gentity_t* targ, gentity_t* attacker) {
 // Handles impact of the weapon with map geometry or entities.
 void G_ImpactUserWeapon(gentity_t *self,trace_t *trace){
 	gentity_t		*other;
-	qboolean		hitClient = qfalse;
 	vec3_t	velocity;
-	int radius;
 	other = &g_entities[trace->entityNum];
 	G_LocationImpact(trace->endpos,other,GetMissileOwnerEntity(self));
 	//G_Printf("Attack's power level is : %i\n",self->powerLevelCurrent);
@@ -1688,8 +1643,6 @@ void G_ImpactUserWeapon(gentity_t *self,trace_t *trace){
 // Wrapper function to safely remove a user weapon, incase
 // things like fading trails need to be handled.
 void G_DetachUserWeapon (gentity_t *self) {
-	gentity_t *other;
-	other = self->enemy;
 	if(self->s.eType == ET_BEAMHEAD && self->powerLevelCurrent > 0){
 		g_entities[self->s.clientNum].client->ps.weaponstate = WEAPON_READY;
 		self->s.eType = ET_MISSILE;
@@ -1718,11 +1671,10 @@ void G_RemoveUserWeapon (gentity_t *self) {
 void Missile_Smooth (gentity_t *ent, vec3_t origin, trace_t *tr) {
 	int touch[MAX_GENTITIES];
 	vec3_t mins, maxs;
-	int num;
 
-	num = trap_EntitiesInBox( mins, maxs, touch, MAX_GENTITIES);
 	VectorAdd(origin,ent->r.mins, mins);
 	VectorAdd(origin,ent->r.maxs, maxs);
+	trap_EntitiesInBox( mins, maxs, touch, MAX_GENTITIES);
 	VectorCopy(origin,ent->s.pos.trBase);
 	ent->s.pos.trTime = level.time;
 }
@@ -1751,8 +1703,6 @@ void G_RunUserMissile( gentity_t *ent ) {
 	vec3_t		origin;
 	trace_t		trace;
 	int			pass_ent;
-	int			beamKnockBack;
-	gentity_t	*traceEnt;
 	vec3_t		muzzle, forward, right, up;
 	vec3_t		start,end;
 	trace_t		trace2;
@@ -1842,8 +1792,6 @@ void G_RunUserSkimmer( gentity_t *ent ) {
 	trace_t		trace;
 	trace_t		groundTrace;
 	int			pass_ent;
-	vec3_t		min_bounds = {0, 0, 0};
-	vec3_t		max_bounds = {0, 0, 0};
 	vec3_t		up = {0, 0, SKIM_MIN_GROUNDCLEARANCE};
 	vec3_t		down = {0, 0, -SKIM_MAX_GROUNDCLEARANCE};
 	vec3_t		floor_target, cross_temp;

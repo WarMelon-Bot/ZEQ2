@@ -338,14 +338,19 @@ char *ExpandGamePath (const char *path)
 char *ExpandPathAndArchive (const char *path)
 {
 	char	*expanded;
-	char	archivename[1024];
 
 	expanded = ExpandPath (path);
 
 	if (archive)
 	{
-		sprintf (archivename, "%s/%s", archivedir, path);
+		/* Size the name from its inputs instead of truncating a fixed buffer. */
+		size_t len = strlen(archivedir) + strlen(path) + 2;
+		char *archivename = malloc(len);
+		if (!archivename)
+			Error("ExpandPathAndArchive: out of memory");
+		snprintf(archivename, len, "%s/%s", archivedir, path);
 		QCopyFile (expanded, archivename);
+		free(archivename);
 	}
 	return expanded;
 }

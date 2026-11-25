@@ -166,8 +166,10 @@ qboolean Sys_WritePIDFile( void )
 	{
 		char  pidBuffer[ 64 ] = { 0 };
 		int   pid;
+		size_t bytesRead;
 
-		fread( pidBuffer, sizeof( char ), sizeof( pidBuffer ) - 1, f );
+		bytesRead = fread( pidBuffer, sizeof( char ), sizeof( pidBuffer ) - 1, f );
+		pidBuffer[ bytesRead ] = '\0';
 		fclose( f );
 
 		pid = atoi( pidBuffer );

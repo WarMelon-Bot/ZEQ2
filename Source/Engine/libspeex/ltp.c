@@ -778,6 +778,7 @@ spx_word32_t *cumul_gain
    int i;
    VARDECL(spx_word16_t *res);
    ALLOC(res, nsf, spx_word16_t);
+   SPEEX_MEMSET(res, 0, nsf);
 #ifdef FIXED_POINT
    if (pitch_coef>63)
       pitch_coef=63;

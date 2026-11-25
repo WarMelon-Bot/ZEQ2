@@ -218,6 +218,17 @@ static int CL_cURL_CallbackProgress( void *dummy, double dltotal, double dlnow,
 	return 0;
 }
 
+#if LIBCURL_VERSION_NUM >= 0x072000
+/* CURLOPT_XFERINFOFUNCTION (libcurl >= 7.32.0) passes 64-bit offsets instead
+ * of doubles, so adapt it to the callback above. */
+static int CL_cURL_CallbackXferInfo( void *dummy, curl_off_t dltotal,
+	curl_off_t dlnow, curl_off_t ultotal, curl_off_t ulnow )
+{
+	return CL_cURL_CallbackProgress( dummy, (double)dltotal, (double)dlnow,
+		(double)ultotal, (double)ulnow );
+}
+#endif
+
 static size_t CL_cURL_CallbackWrite(void *buffer, size_t size, size_t nmemb,
 	void *stream)
 {
@@ -273,9 +284,15 @@ void CL_cURL_BeginDownload( const char *localName, const char *remoteURL )
 		CL_cURL_CallbackWrite);
 	qcurl_easy_setopt(clc.downloadCURL, CURLOPT_WRITEDATA, &clc.download);
 	qcurl_easy_setopt(clc.downloadCURL, CURLOPT_NOPROGRESS, 0);
+#if LIBCURL_VERSION_NUM >= 0x072000
+	qcurl_easy_setopt(clc.downloadCURL, CURLOPT_XFERINFOFUNCTION,
+		CL_cURL_CallbackXferInfo);
+	qcurl_easy_setopt(clc.downloadCURL, CURLOPT_XFERINFODATA, NULL);
+#else
 	qcurl_easy_setopt(clc.downloadCURL, CURLOPT_PROGRESSFUNCTION,
 		CL_cURL_CallbackProgress);
 	qcurl_easy_setopt(clc.downloadCURL, CURLOPT_PROGRESSDATA, NULL);
+#endif
 	qcurl_easy_setopt(clc.downloadCURL, CURLOPT_FAILONERROR, 1);
 	qcurl_easy_setopt(clc.downloadCURL, CURLOPT_FOLLOWLOCATION, 1);
 	qcurl_easy_setopt(clc.downloadCURL, CURLOPT_MAXREDIRS, 5);

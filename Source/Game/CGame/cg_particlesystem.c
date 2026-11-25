@@ -5,6 +5,14 @@
 #include "cg_local.h"
 #include "cg_particlesystem.h"
 
+static void PSys_AccumulateParticle( PSys_System_t *system, PSys_Particle_t *particle );
+static void PSys_IntegrateParticle( PSys_Particle_t *particle, float timeStepSquare, float timeStepCorrected );
+static qboolean PSys_ApplyConstraint( PSys_System_t *system, PSys_Constraint_t *constraint );
+static qboolean PSys_ApplyDistanceMaxConstraint( PSys_System_t *system, float value );
+static qboolean PSys_ApplyDistanceMinConstraint( PSys_System_t *system, float value );
+static qboolean PSys_ApplyDistanceConstraint( PSys_System_t *system, float value );
+static qboolean PSys_ApplyPlaneConstraint( PSys_System_t *system, float value );
+
 #define MAX_ITERATIONS		10 // NOTE -RiO; Will this be enough?
 #define MIN_BOUNCE_DELTA	 8
 
@@ -1189,7 +1197,6 @@ static void PSys_RenderSystems( void ) {
 	vec4_t			lerpedRotation;
 	float			lerpedScale;
 	
-	static int		seed = 0x92;
 	vec3_t			angles;
 
 	system = PSys_Systems_inuse.prev;

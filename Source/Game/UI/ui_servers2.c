@@ -106,12 +106,6 @@ static const char *master_items[] = {
 	NULL
 };
 
-static const char *servertype_items[] = {
-	//"All",
-	"Struggle",
-	NULL
-};
-
 static const char *sortkey_items[] = {
 	"Server Name",
 	"Map Name",
@@ -703,13 +697,11 @@ void ArenaServers_LoadFavorites( void )
 	int				i;
 	int				j;
 	int				numtempitems;
-	char			emptyinfo[MAX_INFO_STRING];
 	char			adrstr[MAX_ADDRESSLENGTH];
 	servernode_t	templist[MAX_FAVORITESERVERS];
 	qboolean		found;
 
 	found        = qfalse;
-	emptyinfo[0] = '\0';
 
 	// copy the old
 	memcpy( templist, g_favoriteserverlist, sizeof(servernode_t)*MAX_FAVORITESERVERS );

@@ -176,7 +176,7 @@ localEntity_t *CG_WaterBubble( const vec3_t p, const vec3_t vel,
 	int contents;
 
 	if(cgs.clientPaused){
-		return le;
+		return NULL;
 	}
 	
 	le = CG_AllocLocalEntity();
@@ -286,8 +286,6 @@ CG_DirtPush
 void CG_DirtPush( vec3_t org, vec3_t dir, int size ) {
 	localEntity_t	*le;
 	refEntity_t		*re;
-	float			ang;
-	vec3_t			oldAxis[3];
 
 	if (cgs.clientPaused){
 		return;
@@ -340,8 +338,6 @@ CG_WaterRipple
 void CG_WaterRipple( vec3_t org, int size, qboolean single ) {
 	localEntity_t	*le;
 	refEntity_t		*re;
-	float			ang;
-	vec3_t			oldAxis[3];
 
 	if (cgs.clientPaused){
 		return;
@@ -502,8 +498,6 @@ Player lightning effect.
 ==================
 */
 void CG_LightningEffect( vec3_t org, clientInfo_t *ci, int tier ) {
-	localEntity_t	*le;
-	refEntity_t		*re;
 	int r,r1,r2,r3,r4,r5,r6;
 
 	if (cgs.clientPaused){
@@ -581,7 +575,7 @@ Lightning sparks for high tiers.
 void CG_BigLightningEffect( vec3_t org ) {
 	localEntity_t	*le;
 	refEntity_t		*re;
-	int r,s;
+	int r;
 
 	if (cgs.clientPaused){
 		return;
@@ -605,7 +599,6 @@ void CG_BigLightningEffect( vec3_t org ) {
 	le->lightColor[0] = 1.0;
 	le->lightColor[1] = 1.0;
 	le->lightColor[2] = 1.0;
-	le->lightColor[3] = 1.0;
 
 	re = &le->refEntity;
 	re->reType = RT_SPRITE;
@@ -742,7 +735,7 @@ Player receiving hit melee effect
 void CG_PowerMeleeEffect( vec3_t org, int tier ) {
 	localEntity_t	*le;
 	refEntity_t		*re;
-	int r,r1,r2,r3,r4,r5,r6;
+	int r1,r2,r3,r4,r5,r6;
 
 	if (cgs.clientPaused){
 		return;
@@ -1066,33 +1059,13 @@ Generated a bunch of gibs launching out from the bodies location
 */
 void CG_BigExplode( vec3_t playerOrigin ) {}
 
-static void CG_AddExplosionLensFlare( vec3_t origin, vec3_t dir ) {
-	lensFlareEntity_t lfent;
-
-	if (!cg_lensFlare.integer) return;
-
-	memset(&lfent, 0, sizeof(lfent));
-	lfent.lfeff = cgs.lensFlareEffectBeamHead;
-	lfent.angle = 180;
-	VectorCopy(dir, lfent.dir);
-	VectorNormalize(lfent.dir);
-
-	if (!lfent.lfeff) return;
-
-	VectorCopy(origin, lfent.origin);
-
-	CG_ComputeMaxVisAngle(&lfent);
-
-	CG_AddLensFlare(&lfent, 1);
-}
-
 /*
 ======================
 CG_MakeUserExplosion
 ======================
 */
 void CG_MakeUserExplosion( vec3_t origin, vec3_t dir, cg_userWeapon_t *weaponGraphics, int powerups, int number ) {
-	float			angle, start, end;
+	float			angle;
 	localEntity_t	*expShell;
 	localEntity_t	*expShock;
 	int				offset;

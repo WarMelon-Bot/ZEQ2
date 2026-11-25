@@ -911,12 +911,11 @@ void parseAura(char *path,auraConfig_t *aura);
 void CG_RegisterClientAura(int clientNum,clientInfo_t *ci){
 	int	i;
 	char filename[MAX_QPATH * 2];
-	char auraPath[MAX_QPATH];
 	memset(&(auraStates[clientNum]), 0, sizeof(auraState_t));
 	for(i = 0;i < 8;i++){ 
 		ci->auraConfig[i] = &(auraStates[clientNum].configurations[i]);
 		memset(ci->auraConfig[i],0,sizeof(auraConfig_t));
-		Com_sprintf(filename,sizeof(filename),"players/tierDefault.cfg",ci->modelName,i+1);
+		Com_sprintf(filename,sizeof(filename),"players/tierDefault.cfg");
 		parseAura(filename,ci->auraConfig[i]);
 		Com_sprintf(filename,sizeof(filename),"players/%s/tier%i/tier.cfg",ci->modelName,i+1);
 		parseAura(filename,ci->auraConfig[i]);
