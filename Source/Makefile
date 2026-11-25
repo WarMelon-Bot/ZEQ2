@@ -36,9 +36,9 @@ ifndef BUILD_GAME_QVM
   BUILD_GAME_QVM   =
 endif
 
-# Build a second, opt-in client with the SDL/GLX render thread on platforms
-# where the GL context can be moved between threads.  Other platforms keep
-# the single-threaded client only.
+# The graphical client always contains the render-thread code; r_smp decides
+# at run time whether it can be used.  On Linux and macOS also create a
+# ZEQ2-smp compatibility symlink so existing scripts keep working.
 ifndef BUILD_CLIENT_SMP
   ifeq ($(PLATFORM),darwin)
     BUILD_CLIENT_SMP = 1
@@ -877,6 +877,21 @@ endif #NetBSD
 endif #IRIX
 endif #SunOS
 
+# ccache is a cheap, large win for this codebase: header-heavy legacy sources
+# are recompiled often during incremental builds.  Leave cross builds and
+# explicitly configured compiler command lines alone.
+ifeq ($(CROSS_COMPILING),0)
+  CCACHE_BIN := $(shell command -v ccache 2>/dev/null)
+  CC_BASE := $(notdir $(firstword $(CC)))
+  ifneq ($(CCACHE_BIN),)
+    ifneq ($(filter cc gcc clang,$(CC_BASE)),)
+      ifneq ($(findstring ccache,$(CC)),ccache)
+        CC := $(CCACHE_BIN) $(CC)
+      endif
+    endif
+  endif
+endif
+
 TARGETS =
 
 ifeq ($(PLATFORM),mingw32)
@@ -900,7 +915,9 @@ endif
 ifneq ($(BUILD_CLIENT),0)
   TARGETS += $(B)/ZEQ2$(FULLBINEXT)
   ifneq ($(BUILD_CLIENT_SMP),0)
-    TARGETS += $(B)/ZEQ2-smp$(FULLBINEXT)
+    ifneq ($(PLATFORM),mingw32)
+      TARGETS += $(B)/ZEQ2-smp$(FULLBINEXT)
+    endif
   endif
 endif
 
@@ -1580,23 +1597,27 @@ ifeq ($(USE_MUMBLE),1)
     $(B)/client/libmumblelink.o
 endif
 
+# One SDL/GLIMP object is enough for both the regular and the threaded path:
+# the -DSMP code is inert unless r_smp is enabled at run time.  Compiling it
+# only once avoids a duplicate compile and a duplicate link of the client.
 Q3POBJ += \
-  $(B)/client/sdl_glimp.o
-
-Q3POBJ_SMP += \
   $(B)/clientsmp/sdl_glimp.o
 
 $(B)/ZEQ2$(FULLBINEXT): $(Q3OBJ) $(Q3POBJ) $(LIBSDLMAIN) $(LIBOGG) $(LIBVORBIS) $(LIBVORBISFILE)
 	$(echo_cmd) "LD $@"
-	$(Q)$(CC) $(CLIENT_CFLAGS) $(CFLAGS) $(CLIENT_LDFLAGS) $(LDFLAGS) \
-		-o $@ $(Q3OBJ) $(Q3POBJ) \
-		$(LIBSDLMAIN) $(LIBVORBISFILE) $(LIBVORBIS) $(LIBOGG)$(CLIENT_LIBS) $(LIBS)
-
-$(B)/ZEQ2-smp$(FULLBINEXT): $(Q3OBJ) $(Q3POBJ_SMP) $(LIBSDLMAIN) $(LIBVORBISFILE) $(LIBVORBIS) $(LIBOGG)
-	$(echo_cmd) "LD $@"
 	$(Q)$(CC) $(CLIENT_CFLAGS) $(CFLAGS) $(CLIENT_LDFLAGS) $(LDFLAGS) $(THREAD_LDFLAGS) \
-		-o $@ $(Q3OBJ) $(Q3POBJ_SMP) \
-		$(THREAD_LIBS) $(LIBSDLMAIN) $(LIBVORBISFILE) $(LIBVORBIS) $(LIBOGG) $(CLIENT_LIBS) $(LIBS)
+		-o $@ $(Q3OBJ) $(Q3POBJ) \
+		$(LIBSDLMAIN) $(LIBVORBISFILE) $(LIBVORBIS) $(LIBOGG) $(CLIENT_LIBS) $(THREAD_LIBS) $(LIBS)
+
+# Keep the old name as a symlink: no second binary, no second link, no extra
+# copy of the renderer in memory.
+ifneq ($(BUILD_CLIENT_SMP),0)
+ifneq ($(PLATFORM),mingw32)
+$(B)/ZEQ2-smp$(FULLBINEXT): $(B)/ZEQ2$(FULLBINEXT)
+	$(echo_cmd) "SYMLINK $@"
+	$(Q)ln -sf $(notdir $<) $@
+endif
+endif
 
 ifneq ($(strip $(LIBSDLMAIN)),)
 ifneq ($(strip $(LIBSDLMAINSRC)),)
@@ -2054,7 +2075,7 @@ $(B)/Base/Shared/%.asm: $(CMDIR)/%.c $(Q3LCC)
 # MISC
 #############################################################################
 
-OBJ = $(Q3OBJ) $(Q3POBJ) $(Q3POBJ_SMP) $(Q3DOBJ) \
+OBJ = $(Q3OBJ) $(Q3POBJ) $(Q3DOBJ) \
   $(GOBJ) $(CGOBJ) $(UIOBJ) \
   $(GVMOBJ) $(CGVMOBJ) $(UIVMOBJ)
 TOOLSOBJ = $(LBURGOBJ) $(Q3CPPOBJ) $(Q3RCCOBJ) $(Q3LCCOBJ) $(Q3ASMOBJ)

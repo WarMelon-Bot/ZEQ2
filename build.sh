@@ -2,9 +2,10 @@
 #
 # ZEQ2-Lite CLI build / run helper
 #
-#   ./build.sh                 build everything and smoke-test server + SMP client
+#   ./build.sh                 build everything and smoke-test server + client
 #   ./build.sh build           build release + debug targets
-#   ./build.sh test            run dedicated-server and SMP-client smoke tests
+#   ./build.sh release         build only the optimized release target (fastest)
+#   ./build.sh test            run dedicated-server and client smoke tests
 #   ./build.sh run [args...]   run the graphical client
 #   ./build.sh smp [args...]   run the multi-threaded renderer client
 #   ./build.sh server [args..] run the dedicated server
@@ -33,7 +34,7 @@ PLATFORM="$(uname | tr '[:upper:]' '[:lower:]' | sed -e 's/_.*//')"
 RELEASE_DIR="$SOURCE_DIR/Build/Release-${PLATFORM}-${ARCH}"
 DEBUG_DIR="$SOURCE_DIR/Build/Debug-${PLATFORM}-${ARCH}"
 
-APT_PACKAGES="build-essential pkg-config libsdl1.2-dev libgl1-mesa-dev libcurl4-openssl-dev libopenal-dev libvorbis-dev"
+APT_PACKAGES="build-essential ccache pkg-config libsdl1.2-dev libgl1-mesa-dev libcurl4-openssl-dev libopenal-dev libvorbis-dev"
 
 # ---------------------------------------------------------------------------
 # Dependency handling
@@ -90,17 +91,7 @@ ensure_deps() {
 # Build helpers
 # ---------------------------------------------------------------------------
 
-make_build() {
-    local config="$1"
-    log "Building ${config} (client, dedicated server, game modules and QVMs)..."
-    make -C "$SOURCE_DIR" "$config" -j"$JOBS" USE_LOCAL_HEADERS=0 $MAKE_ARGS
-}
-
-build_all() {
-    make_build release
-    make_build debug
-    prepare_runtime "$RELEASE_DIR"
-
+verify_release_artifacts() {
     local -a artifacts=("$RELEASE_DIR/ZEQ2.$ARCH" "$RELEASE_DIR/ZEQ2Dedicated.$ARCH")
     if [[ "$PLATFORM" == linux || "$PLATFORM" == darwin ]]; then
         artifacts+=("$RELEASE_DIR/ZEQ2-smp.$ARCH")
@@ -110,7 +101,22 @@ build_all() {
     for artifact in "${artifacts[@]}"; do
         [[ -f "$artifact" ]] || die "Expected artifact was not built: $artifact"
     done
+}
+
+build_all() {
+    log "Building release and debug in one parallel make invocation..."
+    make -C "$SOURCE_DIR" release debug -j"$JOBS" USE_LOCAL_HEADERS=0 $MAKE_ARGS
+    prepare_runtime "$RELEASE_DIR"
+    verify_release_artifacts
     log "Build complete. Release artifacts are in $RELEASE_DIR"
+}
+
+build_release() {
+    log "Building release (client, dedicated server, game modules and QVMs)..."
+    make -C "$SOURCE_DIR" release -j"$JOBS" USE_LOCAL_HEADERS=0 $MAKE_ARGS
+    prepare_runtime "$RELEASE_DIR"
+    verify_release_artifacts
+    log "Release build complete. Artifacts are in $RELEASE_DIR"
 }
 
 build_win64() {
@@ -212,38 +218,64 @@ smoke_test() {
     log "Smoke test passed: dedicated server started and exited cleanly."
 }
 
+run_client_smoke_test() {
+    local label="$1" pattern="$2" expect_thread="$3"
+    shift 3
+
+    local binary logfile home_dir status=0
+    binary="$(find_binary "$RELEASE_DIR" "$pattern")" || die "Client matching '$pattern' was not built."
+    logfile="$(mktemp)"
+    # Isolate the archived config so one run cannot change r_smp for the next.
+    home_dir="$(mktemp -d)"
+
+    log "Smoke-testing ${label} (Xvfb)..."
+    (cd "$RELEASE_DIR" && HOME="$home_dir" timeout 45 xvfb-run -a "./$(basename "$binary")" \
+        "$@" +wait 30 +quit) >"$logfile" 2>&1 || status=$?
+
+    if ((status != 0)); then
+        cat "$logfile" >&2
+        rm -rf "$home_dir" "$logfile"
+        die "$label exited with status $status."
+    fi
+
+    if [[ "$expect_thread" == yes ]]; then
+        grep -q 'Render thread starting' "$logfile" || {
+            cat "$logfile" >&2
+            rm -rf "$home_dir" "$logfile"
+            die "$label did not start the render thread."
+        }
+        grep -q 'Render thread terminating' "$logfile" || {
+            cat "$logfile" >&2
+            rm -rf "$home_dir" "$logfile"
+            die "$label did not shut the render thread down cleanly."
+        }
+    else
+        if grep -q 'Render thread starting' "$logfile"; then
+            cat "$logfile" >&2
+            rm -rf "$home_dir" "$logfile"
+            die "$label started a render thread even though r_smp was disabled."
+        fi
+    fi
+
+    rm -rf "$home_dir" "$logfile"
+    log "Passed: $label"
+}
+
 client_smoke_test() {
     if [[ "$PLATFORM" != linux && "$PLATFORM" != darwin ]]; then
         return 0
     fi
     if ! command -v xvfb-run >/dev/null 2>&1; then
-        warn "xvfb-run not found; skipping the headless render-thread smoke test."
+        warn "xvfb-run not found; skipping the headless render-thread smoke tests."
         return 0
     fi
 
     prepare_runtime "$RELEASE_DIR"
-    local binary logfile status=0
-    binary="$(find_binary "$RELEASE_DIR" 'ZEQ2-smp.*')" || die "SMP client was not built."
-    logfile="$(mktemp)"
-    trap 'rm -f "$logfile"' RETURN
-
-    log "Smoke-testing the SMP client (Xvfb, render thread on/off)..."
-    (cd "$RELEASE_DIR" && timeout 45 xvfb-run -a "./$(basename "$binary")" \
-        +set r_smp 1 +wait 30 +quit) >"$logfile" 2>&1 || status=$?
-
-    if ((status != 0)); then
-        cat "$logfile" >&2
-        die "SMP client exited with status $status."
+    run_client_smoke_test "default client (threaded renderer)" 'ZEQ2.*' yes
+    run_client_smoke_test "single-threaded option (r_smp 0)" 'ZEQ2.*' no +set r_smp 0
+    if [[ -e "$RELEASE_DIR/ZEQ2-smp.$ARCH" ]]; then
+        run_client_smoke_test "ZEQ2-smp compatibility client" 'ZEQ2-smp.*' yes +set r_smp 1
     fi
-    grep -q 'Render thread starting' "$logfile" || {
-        cat "$logfile" >&2
-        die "SMP client did not start the render thread."
-    }
-    grep -q 'Render thread terminating' "$logfile" || {
-        cat "$logfile" >&2
-        die "SMP client did not shut the render thread down cleanly."
-    }
-    log "SMP smoke test passed: render thread started and joined cleanly."
 }
 
 # ---------------------------------------------------------------------------
@@ -258,7 +290,8 @@ Commands:
   all       Check dependencies, build release+debug, and smoke-test (default)
   deps      Check/install build dependencies via apt
   build     Build release and debug targets
-  test      Smoke-test the dedicated server and the SMP client
+  release   Build only the optimized release target
+  test      Smoke-test the dedicated server and the threaded client
   win64     Cross-build Windows x64 server and game modules (needs mingw-w64)
   run       Run the graphical client (extra arguments are passed through)
   smp       Run the client with the multi-threaded renderer (r_smp 1)
@@ -292,9 +325,9 @@ while (($#)); do
             exit 0
             ;;
         *)
-            if [[ "$1" == all || "$1" == deps || "$1" == build || "$1" == test || \
-                  "$1" == win64 || "$1" == run || "$1" == smp || "$1" == server || \
-                  "$1" == clean ]]; then
+            if [[ "$1" == all || "$1" == deps || "$1" == build || "$1" == release || \
+                  "$1" == test || "$1" == win64 || "$1" == run || "$1" == smp || \
+                  "$1" == server || "$1" == clean ]]; then
                 command_name="$1"
             else
                 args+=("$1")
@@ -316,6 +349,9 @@ case "$command_name" in
         ;;
     build)
         build_all
+        ;;
+    release)
+        build_release
         ;;
     test)
         smoke_test
