@@ -13,19 +13,19 @@ permissions:
 
 jobs:
   run-agent:
-    # Only run when you (the repo owner) comment "@agent" on an issue
     if: |
       github.event.sender.login == github.repository_owner &&
       contains(github.event.comment.body || github.event.issue.body, '@agent')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
-          node-version: '20'
+          node-version: '24'
+          package-manager-cache: false
 
       - name: Install Gemini CLI
         run: npm install -g @google/gemini-cli
@@ -35,4 +35,4 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gemini --yolo "Read the repository files and follow the instructions in this GitHub Issue: ${{ github.event.comment.body || github.event.issue.body }}. Build any CLI or build scripts needed, compile and run the source code, inspect all compiler or runtime errors, fix them, and verify the build succeeds cleanly. Finally, create a new git branch, commit your changes, push the branch, and open a Pull Request using the gh CLI."
+          gemini --debug --yolo -p "Read the repository files and follow the instructions in this GitHub Issue: ${{ github.event.comment.body || github.event.issue.body }}. Build any CLI or build scripts needed, compile and run the source code, inspect all compiler or runtime errors, fix them, and verify the build succeeds cleanly. Finally, create a new git branch, commit your changes, push the branch, and open a Pull Request using the gh CLI."
