@@ -1345,7 +1345,10 @@ $(Q3ASM): $(Q3ASMOBJ)
 # CLIENT/SERVER
 #############################################################################
 
+# The renderer reaches OpenGL through a runtime dispatch table so the same
+# front end can also drive the Vulkan translation backend after vid_restart.
 Q3OBJ = \
+  $(B)/client/qgl_dispatch.o \
   $(B)/client/cl_cgame.o \
   $(B)/client/cl_cin.o \
   $(B)/client/cl_console.o \
@@ -1651,6 +1654,19 @@ endif
 ifneq ($(PLATFORM),android)
 Q3POBJ += \
   $(B)/clientsmp/sdl_glimp.o
+endif
+
+# Vulkan backend: enabled by default on desktop Linux when the development
+# headers (vulkan and shaderc) are available.  Set USE_VULKAN=0 to opt out.
+ifeq ($(PLATFORM),linux)
+  ifeq ($(USE_VULKAN),)
+    USE_VULKAN := $(shell pkg-config --exists vulkan shaderc 2>/dev/null && echo 1 || echo 0)
+  endif
+  ifeq ($(USE_VULKAN),1)
+    CLIENT_CFLAGS += -DHAVE_VULKAN
+    CLIENT_LIBS += -lvulkan -lshaderc
+    Q3OBJ += $(B)/client/tr_vkgl.o
+  endif
 endif
 
 $(B)/ZEQ2$(FULLBINEXT): $(Q3OBJ) $(Q3POBJ) $(LIBSDLMAIN) $(LIBOGG) $(LIBVORBIS) $(LIBVORBISFILE)

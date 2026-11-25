@@ -47,7 +47,7 @@ RELEASE_DIR="$SOURCE_DIR/Build/Release-${PLATFORM}-${ARCH}"
 DEBUG_DIR="$SOURCE_DIR/Build/Debug-${PLATFORM}-${ARCH}"
 TEST_DIR="$SOURCE_DIR/Build/Tests"
 
-APT_PACKAGES="build-essential ccache pkg-config libsdl1.2-dev libgl1-mesa-dev libcurl4-openssl-dev libopenal-dev libvorbis-dev"
+APT_PACKAGES="build-essential ccache pkg-config libsdl1.2-dev libgl1-mesa-dev libcurl4-openssl-dev libopenal-dev libvorbis-dev libvulkan-dev libshaderc-dev mesa-vulkan-drivers"
 
 # ---------------------------------------------------------------------------
 # Dependency handling
@@ -63,7 +63,7 @@ check_deps() {
     done
 
     local module
-    for module in sdl gl libcurl openal vorbisfile; do
+    for module in sdl gl libcurl openal vorbisfile vulkan shaderc; do
         if ! pkg-config --exists "$module" 2>/dev/null; then
             if [[ "$module" == "sdl" ]] && command -v sdl-config >/dev/null 2>&1; then
                 continue
@@ -445,6 +445,54 @@ client_smoke_test() {
     fi
 }
 
+vulkan_smoke_test() {
+    [[ "$PLATFORM" == linux ]] || return 0
+    command -v xvfb-run >/dev/null 2>&1 || {
+        warn "xvfb-run not found; skipping the headless Vulkan smoke test."
+        return 0
+    }
+
+    local binary logfile home_dir status=0 icd
+    binary="$(find_binary "$RELEASE_DIR" 'ZEQ2.*')" || die "Client was not built."
+    grep -aq 'Vulkan backend initialized' "$binary" || {
+        warn "This build has no Vulkan backend; skipping the Vulkan smoke test."
+        return 0
+    }
+
+    logfile="$(mktemp)"
+    home_dir="$(mktemp -d)"
+    icd=/usr/share/vulkan/icd.d/lvp_icd.json
+    local driver_files="${VK_ICD_FILENAMES:-}"
+    if [[ -z "$driver_files" && -f "$icd" ]]; then
+        driver_files="$icd"
+    fi
+
+    log "Smoke-testing the Vulkan backend (Xvfb/lavapipe)..."
+    (cd "$RELEASE_DIR" && HOME="$home_dir" \
+        VK_ICD_FILENAMES="$driver_files" \
+        timeout 45 xvfb-run -a "./$(basename "$binary")" \
+        +set r_renderer vulkan +set r_smp 0 +wait 30 +quit) >"$logfile" 2>&1 || status=$?
+
+    if ((status != 0)); then
+        cat "$logfile" >&2
+        rm -rf "$home_dir" "$logfile"
+        die "Vulkan client exited with status $status."
+    fi
+    if ! grep -q 'Vulkan backend initialized' "$logfile"; then
+        cat "$logfile" >&2
+        rm -rf "$home_dir" "$logfile"
+        die "Vulkan backend was not initialized."
+    fi
+    if grep -E -q 'shader translation failed|shader compilation failed|vkCreateGraphicsPipelines failed' "$logfile"; then
+        cat "$logfile" >&2
+        rm -rf "$home_dir" "$logfile"
+        die "Vulkan shader or pipeline creation failed."
+    fi
+
+    rm -rf "$home_dir" "$logfile"
+    log "Passed: Vulkan backend smoke test"
+}
+
 # ---------------------------------------------------------------------------
 # Command line
 # ---------------------------------------------------------------------------
@@ -458,7 +506,7 @@ Commands:
   deps      Check/install build dependencies via apt
   build     Build release and debug targets
   release   Build only the optimized release target
-  test      Run allocator unit tests, then smoke-test server and client
+  test      Run allocator tests, then smoke-test server, OpenGL and Vulkan clients
   memory-test  Build and run the zone/hunk allocator unit tests
   warnings  Fresh release+debug rebuild; fail if any compiler warning appears
   win64     Cross-build Windows x64 server and game modules (needs mingw-w64)
@@ -516,6 +564,7 @@ case "$command_name" in
         memory_test
         smoke_test
         client_smoke_test
+        vulkan_smoke_test
         ;;
     deps)
         ensure_deps
@@ -530,6 +579,7 @@ case "$command_name" in
         memory_test
         smoke_test
         client_smoke_test
+        vulkan_smoke_test
         ;;
     memory-test)
         memory_test

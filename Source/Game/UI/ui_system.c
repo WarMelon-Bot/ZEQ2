@@ -51,6 +51,7 @@ SYSTEM SETTINGS MENU
 #define ID_MUSICVOLUME		108
 #define ID_QUALITY			109
 #define ID_BACK2			110
+#define ID_RENDERER			111
 
 typedef struct {
 	menuframework_s	menu;
@@ -63,6 +64,7 @@ typedef struct {
 	menutext_s		general;
 
 	menulist_s		list;
+	menulist_s		renderer;
 	menulist_s		ratio;
 	menulist_s		mode;
 	menulist_s		driver;
@@ -509,6 +511,8 @@ static void SystemSettings_ApplyChanges( void *unused, int notification )
 	else
 		trap_Cvar_SetValue( "r_mode", s_systemsettings.mode.curvalue );
 
+	trap_Cvar_Set( "r_renderer",
+		s_systemsettings.renderer.curvalue == 1 ? "vulkan" : "opengl" );
 	trap_Cvar_SetValue( "r_fullscreen", s_systemsettings.fs.curvalue );
 	trap_Cvar_SetValue( "r_colorbits", 0 );
 	trap_Cvar_SetValue( "r_depthbits", 0 );
@@ -745,6 +749,8 @@ static void SystemSettings_SetMenuItems( void )
 	}
 	s_systemsettings.ratio.curvalue =
 		resToRatio[ s_systemsettings.mode.curvalue ];
+	s_systemsettings.renderer.curvalue =
+		!Q_stricmp( UI_Cvar_VariableString( "r_renderer" ), "vulkan" ) ? 1 : 0;
 	s_systemsettings.fs.curvalue = trap_Cvar_VariableValue("r_fullscreen");
 	s_systemsettings.allow_extensions.curvalue = trap_Cvar_VariableValue("r_allowExtensions");
 	s_systemsettings.tq.curvalue = 3-trap_Cvar_VariableValue( "r_picmip");
@@ -918,6 +924,13 @@ void SystemSettings_MenuInit( void )
 		NULL
 	};
 
+	static const char *renderer_names[] =
+	{
+		"OpenGL",
+		"Vulkan",
+		NULL
+	};
+
 	int x = 28;
 	int	y = 119;
 	int	offset = 38;
@@ -992,8 +1005,19 @@ void SystemSettings_MenuInit( void )
 	s_systemsettings.framer.width			= 256;
 	s_systemsettings.framer.height			= 334;
 
+	// references/modifies "r_renderer"
+	y = 240 - 7 * (BIGCHAR_HEIGHT + 2);
+	s_systemsettings.renderer.generic.type     = MTYPE_SPINCONTROL;
+	s_systemsettings.renderer.generic.name     = "Renderer:";
+	s_systemsettings.renderer.generic.flags    = QMF_PULSEIFFOCUS|QMF_SMALLFONT;
+	s_systemsettings.renderer.generic.x        = SYSTEM_X_POS;
+	s_systemsettings.renderer.generic.y        = y;
+	s_systemsettings.renderer.itemnames        = renderer_names;
+	s_systemsettings.renderer.generic.callback = SystemSettings_Event;
+	s_systemsettings.renderer.generic.id       = ID_RENDERER;
+	y += BIGCHAR_HEIGHT+2;
+
 	// references/modifies "r_mode"
-	y = 240 - 6 * (BIGCHAR_HEIGHT + 2);
 	s_systemsettings.mode.generic.type     = MTYPE_SPINCONTROL;
 	s_systemsettings.mode.generic.name     = "Resolution:";
 	s_systemsettings.mode.generic.flags    = QMF_PULSEIFFOCUS|QMF_SMALLFONT;
@@ -1129,6 +1153,7 @@ void SystemSettings_MenuInit( void )
 	Menu_AddItem( &s_systemsettings.menu, ( void * ) &s_systemsettings.system );
 	Menu_AddItem( &s_systemsettings.menu, ( void * ) &s_systemsettings.general );
 
+	Menu_AddItem( &s_systemsettings.menu, ( void * ) &s_systemsettings.renderer );
 	Menu_AddItem( &s_systemsettings.menu, ( void * ) &s_systemsettings.mode );
 	Menu_AddItem( &s_systemsettings.menu, ( void * ) &s_systemsettings.ratio );
 	Menu_AddItem( &s_systemsettings.menu, ( void * ) &s_systemsettings.colordepth );
