@@ -505,11 +505,14 @@ ifeq ($(PLATFORM),mingw32)
       BASE_CFLAGS += $(OGG_CFLAGS)
   endif
 
-  ifeq ($(ARCH),x64)
+  # uname reports x86_64 on 64-bit MinGW, while older Windows build scripts
+  # use x64.  Treat both names identically so the x86-64 JIT is compiled and
+  # linked instead of leaving VM_Compile/VM_CallCompiled unresolved.
+  ifneq ($(filter x64 x86_64 amd64,$(ARCH)),)
     OPTIMIZEVM = -O3 -fno-omit-frame-pointer \
       -falign-loops=2 -funroll-loops -falign-jumps=2 -falign-functions=2 \
       -fstrength-reduce
-    OPTIMIZE = $(OPTIMIZEVM) --fast-math
+    OPTIMIZE = $(OPTIMIZEVM) -ffast-math
     HAVE_VM_COMPILED = true
   endif
   ifeq ($(ARCH),x86)
@@ -536,9 +539,9 @@ ifeq ($(PLATFORM),mingw32)
     ifneq ($(USE_CURL_DLOPEN),1)
       ifeq ($(USE_LOCAL_HEADERS),1)
         CLIENT_CFLAGS += -DCURL_STATICLIB
-        ifeq ($(ARCH),x64)
-	  CLIENT_LIBS += $(LIBSDIR)/win64/libcurl.a
-	else
+        ifneq ($(filter x64 x86_64 amd64,$(ARCH)),)
+          CLIENT_LIBS += $(LIBSDIR)/win64/libcurl.a
+        else
           CLIENT_LIBS += $(LIBSDIR)/win32/libcurl.a
         endif
       else
@@ -549,10 +552,17 @@ ifeq ($(PLATFORM),mingw32)
 
   ifeq ($(USE_CODEC_VORBIS),1)
     ifeq ($(USE_LOCAL_HEADERS),1)
-      CLIENT_LIBS += \
-        $(LIBSDIR)/win32/libvorbisfile.a \
-        $(LIBSDIR)/win32/libvorbis.a \
-        $(LIBSDIR)/win32/libogg.a
+      ifneq ($(filter x64 x86_64 amd64,$(ARCH)),)
+        CLIENT_LIBS += \
+          $(LIBSDIR)/win64/libvorbisfile.a \
+          $(LIBSDIR)/win64/libvorbis.a \
+          $(LIBSDIR)/win64/libogg.a
+      else
+        CLIENT_LIBS += \
+          $(LIBSDIR)/win32/libvorbisfile.a \
+          $(LIBSDIR)/win32/libvorbis.a \
+          $(LIBSDIR)/win32/libogg.a
+      endif
     else
       CLIENT_LIBS += $(OGG_LIBS)
     endif

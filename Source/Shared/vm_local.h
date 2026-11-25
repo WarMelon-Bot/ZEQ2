@@ -22,7 +22,19 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include "q_shared.h"
 #include "qcommon.h"
 
-#define	OPSTACK_SIZE	256
+// Max number of arguments passed from the engine to a module's vmMain.
+// command number + 12 arguments.
+#define MAX_VMMAIN_ARGS 13
+
+// Max number of arguments passed from a module to the engine syscall handler.
+// syscall number + 15 arguments.
+#define MAX_VMSYSCALL_ARGS 16
+
+// don't change, this is hardcoded into x86 VMs, opStack protection relies
+// on this. 256 entries are not enough for some QVMs and show up as an
+// "opStack overflow" (or an apparently random stack crash) while loading a
+// map, especially in the interpreted/debug path.
+#define	OPSTACK_SIZE	1024
 #define	OPSTACK_MASK	(OPSTACK_SIZE-1)
 
 // don't change

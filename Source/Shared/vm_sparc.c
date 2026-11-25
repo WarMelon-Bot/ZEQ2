@@ -1628,9 +1628,9 @@ int VM_CallCompiled(vm_t *vm, int *args)
 
 	vm->currentlyInterpreting = qtrue;
 
-	programStack -= 48;
+	programStack -= (MAX_VMMAIN_ARGS + 1) * sizeof(int);
 	argPointer = (int *)&image[ programStack + 8 ];
-	memcpy( argPointer, args, 4 * 9 );
+	memcpy( argPointer, args, sizeof(int) * MAX_VMMAIN_ARGS );
 	argPointer[-1] = 0;
 	argPointer[-2] = -1;
 

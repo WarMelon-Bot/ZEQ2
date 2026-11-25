@@ -74,7 +74,10 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 
 //================================================================= WIN64/32 ===
 
-#ifdef __WIN64__
+#if defined( __WIN64__ ) || defined( _WIN64 ) || defined( WIN64 )
+#ifndef __WIN64__
+#define __WIN64__
+#endif
 
 #undef QDECL
 #define QDECL __cdecl

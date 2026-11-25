@@ -645,7 +645,7 @@ CG_HUD
 void CG_DrawHUD(playerState_t *ps,int clientNum,int x,int y,qboolean flipped){
 	const char	*powerLevelString;
 	int 		powerLevelOffset;
-	long	 	powerLevelDisplay;
+	int	 	powerLevelDisplay;
 	float		multiplier;
 	vec4_t	powerColor = {0.0f,0.588f,1.0f,1.0f};
 	vec4_t	dullColor = {0.188f,0.278f,0.345f,1.0f};

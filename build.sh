@@ -8,9 +8,11 @@
 #   ./build.sh run [args...]   run the graphical client
 #   ./build.sh server [args..] run the dedicated server
 #   ./build.sh deps            check (and install) build dependencies
+#   ./build.sh win64           cross-build the dedicated server and game DLL/QVMs for Windows x64
 #   ./build.sh clean           remove all build artifacts
 #
-# Environment overrides: JOBS, MAKE_ARGS, DEBIAN_FRONTEND, SDL_VIDEODRIVER
+# Environment overrides: JOBS, MAKE_ARGS, DEBIAN_FRONTEND, SDL_VIDEODRIVER,
+#                        WIN64_CC, WIN64_WINDRES
 #
 
 set -euo pipefail
@@ -105,6 +107,32 @@ build_all() {
     log "Build complete. Release artifacts are in $RELEASE_DIR"
 }
 
+build_win64() {
+    local cc="${WIN64_CC:-x86_64-w64-mingw32-gcc}"
+    local windres="${WIN64_WINDRES:-x86_64-w64-mingw32-windres}"
+    local out_dir="$SOURCE_DIR/Build/Release-mingw32-x86_64"
+
+    command -v "$cc" >/dev/null 2>&1 || die "Windows x64 cross-compiler '$cc' not found. Install mingw-w64 or set WIN64_CC."
+    command -v "$windres" >/dev/null 2>&1 || die "Windows x64 resource compiler '$windres' not found. Install mingw-w64 or set WIN64_WINDRES."
+
+    log "Cross-building Windows x64 dedicated server, game DLLs and QVMs..."
+    make -C "$SOURCE_DIR" \
+        PLATFORM=mingw32 ARCH=x86_64 CC="$cc" WINDRES="$windres" \
+        USE_LOCAL_HEADERS=0 BUILD_CLIENT=0 BUILD_SERVER=1 \
+        BUILD_GAME_SO=1 BUILD_GAME_QVM=1 \
+        -j"$JOBS" release $MAKE_ARGS
+
+    local artifact
+    for artifact in \
+        "$out_dir/ZEQ2Dedicated.exe" \
+        "$out_dir/Base/gamex86_64.dll" \
+        "$out_dir/Base/cgamex86_64.dll" \
+        "$out_dir/Base/uix86_64.dll"; do
+        [[ -f "$artifact" ]] || die "Expected Windows x64 artifact was not built: $artifact"
+    done
+    log "Windows x64 build complete. Artifacts are in $out_dir"
+}
+
 # ---------------------------------------------------------------------------
 # Runtime helpers
 # ---------------------------------------------------------------------------
@@ -191,6 +219,7 @@ Commands:
   deps      Check/install build dependencies via apt
   build     Build release and debug targets
   test      Smoke-test the dedicated server
+  win64     Cross-build Windows x64 server and game modules (needs mingw-w64)
   run       Run the graphical client (extra arguments are passed through)
   server    Run the dedicated server (extra arguments are passed through)
   clean     Remove all build artifacts
@@ -204,6 +233,7 @@ Examples:
   $0 run +set fs_game ZEQ2
   $0 server +map mymap
   JOBS=2 $0 build
+  $0 win64
 EOF
 }
 
@@ -222,7 +252,7 @@ while (($#)); do
             ;;
         *)
             if [[ "$1" == all || "$1" == deps || "$1" == build || "$1" == test || \
-                  "$1" == run || "$1" == server || "$1" == clean ]]; then
+                  "$1" == win64 || "$1" == run || "$1" == server || "$1" == clean ]]; then
                 command_name="$1"
             else
                 args+=("$1")
@@ -246,6 +276,9 @@ case "$command_name" in
         ;;
     test)
         smoke_test
+        ;;
+    win64)
+        build_win64
         ;;
     run)
         run_binary 'ZEQ2.*' "${args[@]}"

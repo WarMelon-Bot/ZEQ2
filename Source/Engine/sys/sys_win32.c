@@ -141,7 +141,7 @@ int Sys_Milliseconds (void)
 	return sys_curtime;
 }
 
-#ifndef __GNUC__ //see snapvectora.s
+#if !defined( __GNUC__ ) && !defined( __WIN64__ ) //see snapvectora.s
 /*
 ================
 Sys_SnapVector

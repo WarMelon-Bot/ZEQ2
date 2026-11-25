@@ -217,7 +217,6 @@ VM_LoadSymbols
 ===============
 */
 void VM_LoadSymbols( vm_t *vm ) {
-	int		len;
 	union {
 		char	*c;
 		void	*v;
@@ -239,7 +238,7 @@ void VM_LoadSymbols( vm_t *vm ) {
 
 	COM_StripExtension(vm->name, name, sizeof(name));
 	Com_sprintf( symbols, sizeof( symbols ), "vm/%s.map", name );
-	len = FS_ReadFile( symbols, &mapfile.v );
+	FS_ReadFile( symbols, &mapfile.v );
 	if ( !mapfile.c ) {
 		Com_Printf( "Couldn't load symbol file: %s\n", symbols );
 		return;
@@ -339,7 +338,7 @@ Dlls will call this directly
 intptr_t QDECL VM_DllSyscall( intptr_t arg, ... ) {
 #if !id386
   // rcg010206 - see commentary above
-  intptr_t args[16];
+  intptr_t args[MAX_VMSYSCALL_ARGS];
   int i;
   va_list ap;
   
@@ -365,7 +364,6 @@ Load a .qvm file
 =================
 */
 vmHeader_t *VM_LoadQVM( vm_t *vm, qboolean alloc ) {
-	int					length;
 	int					dataLength;
 	int					i;
 	char				filename[MAX_QPATH];
@@ -377,7 +375,7 @@ vmHeader_t *VM_LoadQVM( vm_t *vm, qboolean alloc ) {
 	// load the image
 	Com_sprintf( filename, sizeof(filename), "vm/%s.qvm", vm->name );
 	Com_Printf( "Loading vm file %s...\n", filename );
-	length = FS_ReadFile( filename, &header.v );
+	FS_ReadFile( filename, &header.v );
 	if ( !header.h ) {
 		Com_Printf( "Failed.\n" );
 		VM_Free( vm );
@@ -750,7 +748,7 @@ intptr_t	QDECL VM_Call( vm_t *vm, int callnum, ... ) {
 	// if we have a dll loaded, call it directly
 	if ( vm->entryPoint ) {
 		//rcg010207 -  see dissertation at top of VM_DllSyscall() in this file.
-		int args[10];
+		int args[MAX_VMMAIN_ARGS - 1];
 		va_list ap;
 		va_start(ap, callnum);
 		for (i = 0; i < sizeof (args) / sizeof (args[i]); i++) {
@@ -760,7 +758,7 @@ intptr_t	QDECL VM_Call( vm_t *vm, int callnum, ... ) {
 
 		r = vm->entryPoint( callnum,  args[0],  args[1],  args[2], args[3],
                             args[4],  args[5],  args[6], args[7],
-                            args[8],  args[9]);
+                            args[8],  args[9], args[10], args[11]);
 	} else {
 #if id386 || idsparc // i386/sparc calling convention doesn't need conversion
 #ifndef NO_VM_COMPILED
@@ -772,7 +770,7 @@ intptr_t	QDECL VM_Call( vm_t *vm, int callnum, ... ) {
 #else
 		struct {
 			int callnum;
-			int args[10];
+			int args[MAX_VMMAIN_ARGS - 1];
 		} a;
 		va_list ap;
 

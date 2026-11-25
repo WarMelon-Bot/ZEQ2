@@ -1007,13 +1007,12 @@ static char* memData;
 #endif
 
 int	VM_CallCompiled( vm_t *vm, int *args ) {
-	int		programCounter;
 	int		programStack;
 	int		stackOnEntry;
 	byte	*image;
 	void	*entryPoint;
 	void	*opStack;
-	int stack[1024] = { 0xDEADBEEF };
+	int stack[OPSTACK_SIZE] = { 0xDEADBEEF };
 
 	currentVM = vm;
 
@@ -1034,10 +1033,15 @@ int	VM_CallCompiled( vm_t *vm, int *args ) {
 	memData = (char*)image;
 #endif
 
-	programCounter = 0;
+	// Leave room for the return address, return stack and the command plus
+	// all twelve vmMain arguments.  Older code only reserved ten slots,
+	// which corrupted the top of the VM stack whenever arg9/arg10/arg11
+	// were used.
+	programStack -= (MAX_VMMAIN_ARGS + 1) * sizeof(int);
 
-	programStack -= 48;
-
+	*(int *)&image[ programStack + 56] = args[12];
+	*(int *)&image[ programStack + 52] = args[11];
+	*(int *)&image[ programStack + 48] = args[10];
 	*(int *)&image[ programStack + 44] = args[9];
 	*(int *)&image[ programStack + 40] = args[8];
 	*(int *)&image[ programStack + 36] = args[7];
@@ -1067,13 +1071,22 @@ int	VM_CallCompiled( vm_t *vm, int *args ) {
 		"	movq %%rsi, %1		\r\n" \
 		: "=m" (programStack), "=m" (opStack)
 		: "m" (entryPoint), "m" (vm->dataBase), "m" (programStack), "m" (opStack)
-		: "%rsi", "%rdi", "%rax", "%rbx", "%rcx", "%rdx", "%r8", "%r10", "%r15", "%xmm0"
+		// The generated code calls C helpers through the SysV ABI on Windows.
+		// Those helpers may clobber every volatile register and, unlike a real
+		// call, the compiler cannot see them.  In particular Windows x64 treats
+		// xmm6-xmm15 as non-volatile, so omitting them here lets the JIT trash
+		// live values in this frame and look like a stack overflow/crash.
+		: "%rsi", "%rdi", "%rax", "%rbx", "%rcx", "%rdx", "%r8", "%r9", "%r10",
+		  "%r11", "%r15",
+		  "%xmm0", "%xmm1", "%xmm2", "%xmm3", "%xmm4", "%xmm5", "%xmm6",
+		  "%xmm7", "%xmm8", "%xmm9", "%xmm10", "%xmm11", "%xmm12", "%xmm13",
+		  "%xmm14", "%xmm15", "cc", "memory"
 	);
 
 	if ( opStack != &stack[1] ) {
 		Com_Error( ERR_DROP, "opStack corrupted in compiled code (offset %"PRId64")\n", (int64_t) ((void *) &stack[1] - opStack));
 	}
-	if ( programStack != stackOnEntry - 48 ) {
+	if ( programStack != stackOnEntry - (MAX_VMMAIN_ARGS + 1) * sizeof(int) ) {
 		Com_Error( ERR_DROP, "programStack corrupted in compiled code\n" );
 	}
 
