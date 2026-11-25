@@ -106,100 +106,10 @@ void CG_DrawLineRGBA (vec3_t start, vec3_t end, float width, qhandle_t shader, v
 VIEW WEAPON
 ========================================================================================*/
 
-/*=================
-CG_MapTorsoToWeaponFrame
-=================*/
-static int CG_MapTorsoToWeaponFrame( clientInfo_t *ci, int frame ) {
-/*
-	// change weapon
-	if ( frame >= ci->animations[ANIM_DROP].firstFrame 
-		&& frame < ci->animations[ANIM_DROP].firstFrame + 9 ) {
-		return frame - ci->animations[ANIM_DROP].firstFrame + 6;
-	}
-
-	// stand attack
-	if ( frame >= ci->animations[ANIM_ATTACK].firstFrame 
-		&& frame < ci->animations[ANIM_ATTACK].firstFrame + 6 ) {
-		return 1 + frame - ci->animations[ANIM_ATTACK].firstFrame;
-	}
-
-	// stand attack 2
-	if ( frame >= ci->animations[ANIM_ATTACK2].firstFrame 
-		&& frame < ci->animations[ANIM_ATTACK2].firstFrame + 6 ) {
-		return 1 + frame - ci->animations[ANIM_ATTACK2].firstFrame;
-	}
-*/
-	return 0;
-}
 
 
-/*
-==============
-CG_CalculateWeaponPosition
-==============
-*/
-static void CG_CalculateWeaponPosition( vec3_t origin, vec3_t angles ) {
-	float	scale;
-	int		delta;
-	float	fracsin;
-
-	VectorCopy( cg.refdef.vieworg, origin );
-	VectorCopy( cg.refdefViewAngles, angles );
-
-	// on odd legs, invert some angles
-	if ( cg.bobcycle & 1 ) {
-		scale = -cg.xyspeed;
-	} else {
-		scale = cg.xyspeed;
-	}
-
-	// gun angles from bobbing
-	angles[ROLL] += scale * cg.bobfracsin * 0.005;
-	angles[YAW] += scale * cg.bobfracsin * 0.01;
-	angles[PITCH] += cg.xyspeed * cg.bobfracsin * 0.005;
-
-	// drop the weapon when landing
-	delta = cg.time - cg.landTime;
-	if ( delta < LAND_DEFLECT_TIME ) {
-		origin[2] += cg.landChange*0.25 * delta / LAND_DEFLECT_TIME;
-	} else if ( delta < LAND_DEFLECT_TIME + LAND_RETURN_TIME ) {
-		origin[2] += cg.landChange*0.25 * 
-			(LAND_DEFLECT_TIME + LAND_RETURN_TIME - delta) / LAND_RETURN_TIME;
-	}
-
-#if 0
-	// drop the weapon when stair climbing
-	delta = cg.time - cg.stepTime;
-	if ( delta < STEP_TIME/2 ) {
-		origin[2] -= cg.stepChange*0.25 * delta / (STEP_TIME/2);
-	} else if ( delta < STEP_TIME ) {
-		origin[2] -= cg.stepChange*0.25 * (STEP_TIME - delta) / (STEP_TIME/2);
-	}
-#endif
-
-	// idle drift
-	scale = cg.xyspeed + 40;
-	fracsin = sin( cg.time * 0.001 );
-	angles[ROLL] += scale * fracsin * 0.01;
-	angles[YAW] += scale * fracsin * 0.01;
-	angles[PITCH] += scale * fracsin * 0.01;
-}
 
 
-/*
-===============
-CG_LightningBolt
-
-Origin will be the exact tag point, which is slightly
-different than the muzzle point used for determining hits.
-The cent should be the non-predicted cent if it is from the player,
-so the endpoint will reflect the simulated strike (lagging the predicted
-angle)
-===============
-*/
-static void CG_LightningBolt( centity_t *cent, vec3_t origin ) {
-	return;
-}
 /*
 ===============
 JUHOX: CG_Draw3DLine
@@ -217,57 +127,10 @@ void CG_Draw3DLine(const vec3_t start, const vec3_t end, qhandle_t shader) {
 	trap_R_AddRefEntityToScene(&line);
 }
 
-/*
-===============
-CG_SpawnRailTrail
-
-Origin will be the exact tag point, which is slightly
-different than the muzzle point used for determining hits.
-===============
-*/
-static void CG_SpawnRailTrail( centity_t *cent, vec3_t origin ) {return;}
 
 
-/*
-======================
-CG_MachinegunSpinAngle
-======================
-*/
-#define		SPIN_SPEED	0.9
-#define		COAST_TIME	1000
-static float	CG_MachinegunSpinAngle( centity_t *cent ) {
-	int		delta;
-	float	angle;
-	float	speed;
-
-	delta = cg.time - cent->pe.barrelTime;
-	if ( cent->pe.barrelSpinning ) {
-		angle = cent->pe.barrelAngle + delta * SPIN_SPEED;
-	} else {
-		if ( delta > COAST_TIME ) {
-			delta = COAST_TIME;
-		}
-
-		speed = 0.5 * ( SPIN_SPEED + (float)( COAST_TIME - delta ) / COAST_TIME );
-		angle = cent->pe.barrelAngle + delta * speed;
-	}
-
-	if ( cent->pe.barrelSpinning == !(cent->currentState.eFlags & EF_FIRING) ) {
-		cent->pe.barrelTime = cg.time;
-		cent->pe.barrelAngle = AngleMod( angle );
-		cent->pe.barrelSpinning = !!(cent->currentState.eFlags & EF_FIRING);
-	}
-
-	return angle;
-}
 
 
-/*
-========================
-CG_AddWeaponWithPowerups
-========================
-*/
-static void CG_AddWeaponWithPowerups( refEntity_t *gun, int powerups ) {}
 
 
 /*
@@ -971,86 +834,6 @@ WEAPON SELECTION
 ==============================================================================
 */
 
-static void CG_DrawWeaponSelectQuarterFan( void ) {
-	int				i;
-	int				bits;
-	int				count;
-	int				x, y;
-	int				textX, textY;
-	int				iconsPerLine, iconW, iconH;
-	int				rootX, rootY;
-	int				startOffset, lineOffset;
-	float			startAngle, endAngle;
-	float			angleUnit;
-	char			name[MAX_WEAPONNAME * 2 + 4]; // Need a little more leeway
-	float			*color;
-	cg_userWeapon_t	*weaponInfo;
-	cg_userWeapon_t	*alt_weaponInfo;
-
-	color = CG_FadeColor( cg.weaponSelectTime, WEAPON_SELECT_TIME, 200 );
-	if ( !color ) {
-		return;
-	}
-	trap_R_SetColor( color );
-
-	textX = 110; textY = 380;
-
-	rootX = 64;	rootY = 424;
-	iconsPerLine = 3; iconW = 32; iconH = 32;
-	startAngle = DEG2RAD(-20); endAngle = DEG2RAD(40);
-	startOffset = 80; lineOffset = 40;
-
-	if (iconsPerLine != 1) {
-		angleUnit = (endAngle - startAngle) / (iconsPerLine - 1);
-	} else {
-		angleUnit = 0;
-	}
-	
-	bits = cg.snap->ps.stats[ stSkills ];
-	count = 0;
-	for ( i = 1 ; i < 16 ; i++ ) {
-		if ( !( bits & ( 1 << i ) ) ) {
-			continue;
-		}
-
-		weaponInfo = CG_FindUserWeaponGraphics( cg.snap->ps.clientNum, i );
-
-		// set position
-		x = rootX - (iconW / 2) +
-			sin(startAngle + angleUnit * (count % 3)) * (startOffset + lineOffset * (count / 3));
-		y = rootY - (iconH / 2) +
-			-1 * cos(startAngle + angleUnit * (count % 3)) * (startOffset + lineOffset * (count / 3));
-		
-		// draw weapon icon
-		if ( weaponInfo->weaponIcon ) {
-			CG_DrawPic(qfalse, x, y, 32, 32, weaponInfo->weaponIcon );
-		}
-
-		if ( i == cg.weaponSelect ) {
-			CG_DrawPic(qfalse, x-4, y-4, 40, 40, cgs.media.selectShader );
-		}
-
-		count++;
-	}
-
-	weaponInfo = CG_FindUserWeaponGraphics( cg.snap->ps.clientNum, cg.weaponSelect );
-	alt_weaponInfo = CG_FindUserWeaponGraphics ( cg.snap->ps.clientNum, ALTWEAPON_OFFSET + cg.weaponSelect);
-
-	// draw the selected name
-	if ( weaponInfo->weaponName[0] != 0 ) {
-
-		if ( alt_weaponInfo->weaponName[0] != 0 ) {
-			Com_sprintf( name, sizeof(name), "%s / %s", weaponInfo->weaponName, alt_weaponInfo->weaponName );
-		} else {
-			Com_sprintf( name, sizeof(name), "%s", weaponInfo->weaponName );
-		}
-
-		CG_DrawMediumStringColor(textX, textY, name, color);
-	}
-
-	trap_R_SetColor( NULL );
-	
-}
 
 /*
 ===============================
@@ -1132,9 +915,9 @@ static void CG_DrawWeaponSelectHorCenterBar( void ) {
 	alt_weaponInfo = CG_FindUserWeaponGraphics ( cg.snap->ps.clientNum, ALTWEAPON_OFFSET + cg.weaponSelect);
 
 	// draw the selected name
-	if ( weaponInfo->weaponName ) {
+	if ( weaponInfo->weaponName[0] ) {
 
-		if ( alt_weaponInfo->weaponName ) {
+		if ( alt_weaponInfo->weaponName[0] ) {
 			Com_sprintf( name, sizeof(name), "%s / %s", weaponInfo->weaponName, alt_weaponInfo->weaponName );
 		} else {
 			Com_sprintf( name, sizeof(name), "%s", weaponInfo->weaponName );
@@ -1674,7 +1457,7 @@ void CG_Weapon_f( void ) {
 							"lfemm %d %f %f %f %f %f %f",
 							cg.lfEditor.moveMode,
 							viewOrg[0], viewOrg[1], viewOrg[2],
-							angles[0], angles[1], angles[3]
+							angles[0], angles[1], angles[2]
 						)
 					);
 				}
@@ -2099,7 +1882,6 @@ void CG_Tracer( vec3_t source, vec3_t dest ) {
 	vec3_t		line;
 	float		len, begin, end;
 	vec3_t		start, finish;
-	vec3_t		midpoint;
 
 	// tracer
 	VectorSubtract( dest, source, forward );
@@ -2157,49 +1939,5 @@ void CG_Tracer( vec3_t source, vec3_t dest ) {
 	verts[3].modulate[3] = 255;
 
 	trap_R_AddPolyToScene( cgs.media.tracerShader, 4, verts );
-
-	midpoint[0] = ( start[0] + finish[0] ) * 0.5;
-	midpoint[1] = ( start[1] + finish[1] ) * 0.5;
-	midpoint[2] = ( start[2] + finish[2] ) * 0.5;
-
-}
-
-
-/*
-======================
-CG_CalcMuzzlePoint
-======================
-*/
-static qboolean	CG_CalcMuzzlePoint( int entityNum, vec3_t muzzle ) {
-	vec3_t		forward;
-	centity_t	*cent;
-	int			anim;
-
-	if ( entityNum == cg.snap->ps.clientNum ) {
-		VectorCopy( cg.snap->ps.origin, muzzle );
-		muzzle[2] += cg.snap->ps.viewheight;
-		AngleVectors( cg.snap->ps.viewangles, forward, NULL, NULL );
-		VectorMA( muzzle, 14, forward, muzzle );
-		return qtrue;
-	}
-
-	cent = &cg_entities[entityNum];
-	if ( !cent->currentValid ) {
-		return qfalse;
-	}
-
-	VectorCopy( cent->currentState.pos.trBase, muzzle );
-
-	AngleVectors( cent->currentState.apos.trBase, forward, NULL, NULL );
-//	anim = cent->currentState.legsAnim & ~ANIM_TOGGLEBIT;
-//	if ( anim == ANIM_WALKCR || anim == ANIM_IDLECR ) {
-//		muzzle[2] += CROUCH_VIEWHEIGHT;
-//	} else {
-		muzzle[2] += DEFAULT_VIEWHEIGHT;
-//	}
-
-	VectorMA( muzzle, 14, forward, muzzle );
-
-	return qtrue;
 
 }

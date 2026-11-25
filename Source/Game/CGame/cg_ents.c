@@ -387,7 +387,6 @@ CG_TrailFunc_StraightBeam
 */
 void CG_TrailFunc_StraightBeam( centity_t *ent ) {
 	entityState_t	*es;
-	centity_t		*owner_ent;
 	cg_userWeapon_t	*weaponGraphics;
 	float			radius;
 	orientation_t	orient;
@@ -397,7 +396,6 @@ void CG_TrailFunc_StraightBeam( centity_t *ent ) {
 
 	// Initialize some things for quick reference
 	es = &ent->currentState;
-	owner_ent = &cg_entities[es->clientNum];
 	weaponGraphics = CG_FindUserWeaponGraphics( es->clientNum, es->weapon );
 
 	if (!weaponGraphics->missileTrailShader) {
@@ -647,13 +645,7 @@ void CG_TrailFunc_FadeTail( centity_t *cent ) {
 CG_Torch
 ===============
 */
-static void CG_Torch( centity_t *cent ) {
-	entityState_t		*s1;
-	cg_userWeapon_t		*weaponGraphics;
-
-	s1 = &cent->currentState;
-	weaponGraphics = CG_FindUserWeaponGraphics(s1->clientNum, s1->weapon);
-}
+static void CG_Torch( centity_t *cent ) {}
 
 
 /*
@@ -667,18 +659,13 @@ static void CG_Missile( centity_t *cent ) {
 	cg_userWeapon_t		*weaponGraphics;
 	float				missileScale;
 	int					missileChargeLvl;
-	playerState_t		*ps;
 	int					missilePowerLevelCurrent;
 	int					missilePowerLevelTotal;
 	float				radiusScale;
 	qboolean			missileIsStruggling;
-	qboolean			splash;
 	vec3_t				origin, lastPos;
-	int					contents;
-	int					lastContents;
-	vec3_t				start, end;
-	trace_t				trace;
-	ps = &cg.predictedPlayerState;
+	int					contents = 0;
+	int					lastContents = 0;
 	s1 = &cent->currentState;
 	weaponGraphics = CG_FindUserWeaponGraphics(s1->clientNum, s1->weapon);
 /*
@@ -1044,7 +1031,7 @@ Also called by client movement prediction code
 void CG_AdjustPositionForMover( const vec3_t in, int moverNum, int fromTime, int toTime, vec3_t out ) {
 	centity_t	*cent;
 	vec3_t	oldOrigin, origin, deltaOrigin;
-	vec3_t	oldAngles, angles, deltaAngles;
+	vec3_t	oldAngles, angles;
 
 	if ( moverNum <= 0 || moverNum >= ENTITYNUM_MAX_NORMAL ) {
 		VectorCopy( in, out );
@@ -1064,7 +1051,6 @@ void CG_AdjustPositionForMover( const vec3_t in, int moverNum, int fromTime, int
 	BG_EvaluateTrajectory( &cent->currentState, &cent->currentState.apos, toTime, angles );
 
 	VectorSubtract( origin, oldOrigin, deltaOrigin );
-	VectorSubtract( angles, oldAngles, deltaAngles );
 
 	VectorAdd( in, deltaOrigin, out );
 
@@ -1148,13 +1134,6 @@ static void CG_CalcEntityLerpPositions( centity_t *cent ) {
 		cg.snap->serverTime, cg.time, cent->lerpOrigin );
 	}
 }
-
-/*
-===============
-CG_TeamBase
-===============
-*/
-static void CG_TeamBase( centity_t *cent ){}
 
 /*
 ===============

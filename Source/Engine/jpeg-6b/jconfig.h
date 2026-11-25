@@ -1,13 +1,18 @@
 /* jconfig.wat --- jconfig.h for Watcom C/C++ on MS-DOS or OS/2. */
 /* see jconfig.doc for explanations */
 
+#ifndef JCONFIG_H
+#define JCONFIG_H
+
 #define HAVE_PROTOTYPES
 #define HAVE_UNSIGNED_CHAR
 #define HAVE_UNSIGNED_SHORT
 /* #define void char */
 /* #define const */
 #define CHAR_IS_UNSIGNED
-#define HAVE_STDDEF_H
+#ifndef HAVE_STDDEF_H
+#define HAVE_STDDEF_H 1
+#endif
 #undef NEED_BSD_STRINGS
 #undef NEED_SYS_TYPES_H
 #undef NEED_FAR_POINTERS	/* Watcom uses flat 32-bit addressing */
@@ -38,3 +43,5 @@
 #undef PROGRESS_REPORT		/* optional */
 
 #endif /* JPEG_CJPEG_DJPEG */
+
+#endif /* JCONFIG_H */

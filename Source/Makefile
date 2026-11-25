@@ -1029,7 +1029,7 @@ endif
 
 define DO_CC
 $(echo_cmd) "CC $<"
-$(Q)$(CC) $(NOTSHLIBCFLAGS) $(CFLAGS) $(CLIENT_CFLAGS) $(OPTIMIZE) -o $@ -c $<
+$(Q)$(CC) $(NOTSHLIBCFLAGS) $(CFLAGS) $(CLIENT_CFLAGS) $(LEGACY_COMPAT_CFLAGS) $(OPTIMIZE) -o $@ -c $<
 endef
 
 define DO_SMP_CC
@@ -2001,6 +2001,16 @@ $(B)/Base/vm/ui.qvm: $(UIVMOBJ) $(UIDIR)/ui_syscalls.asm $(Q3ASM)
 #############################################################################
 ## CLIENT/SERVER RULES
 #############################################################################
+
+# Bundled zlib/unzip and NDK glue use K&R declarations by design. Scope
+# Clang's C23 deprecation diagnostics to those translation units only.
+ifeq ($(PLATFORM),android)
+$(B)/client/adler32.o $(B)/client/crc32.o $(B)/client/inffast.o \
+$(B)/client/inflate.o $(B)/client/inftrees.o $(B)/client/zutil.o \
+$(B)/client/unzip.o $(B)/client/ioapi.o \
+$(B)/client/android_native_app_glue.o $(B)/client/android_main.o \
+$(B)/client/android_glimp.o $(B)/client/android_input.o: LEGACY_COMPAT_CFLAGS = -Wno-deprecated-non-prototype -Wno-strict-prototypes
+endif
 
 $(B)/client/%.o: $(ASMDIR)/%.s
 	$(DO_AS)

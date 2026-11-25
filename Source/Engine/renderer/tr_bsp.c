@@ -138,7 +138,6 @@ static	void R_LoadLightmaps( lump_t *l ) {
 	byte		image[LIGHTMAP_SIZE*LIGHTMAP_SIZE*4];
 	int			i, j;
 	float maxIntensity = 0;
-	double sumIntensity = 0;
 
 	len = l->filelen;
 	if ( !len ) {
@@ -195,8 +194,6 @@ static	void R_LoadLightmaps( lump_t *l ) {
 				image[j*4+1] = out[1] * 255;
 				image[j*4+2] = out[2] * 255;
 				image[j*4+3] = 255;
-
-				sumIntensity += intensity;
 			}
 		} else {
 			for ( j = 0 ; j < LIGHTMAP_SIZE * LIGHTMAP_SIZE; j++ ) {
@@ -274,7 +271,9 @@ static shader_t *ShaderForShaderNum( int shaderNum, int lightmapNum ) {
 	shader_t	*shader;
 	dshader_t	*dsh;
 
+#if defined( Q3_BIG_ENDIAN ) && !defined( Q3_VM )
 	shaderNum = LittleLong( shaderNum );
+#endif
 	if ( shaderNum < 0 || shaderNum >= s_worldData.numShaders ) {
 		ri.Error( ERR_DROP, "ShaderForShaderNum: bad num %i", shaderNum );
 	}

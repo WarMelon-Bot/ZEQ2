@@ -608,7 +608,7 @@ if desired.
 */
 void ClientUserinfoChanged( int clientNum ) {
 	gentity_t *ent;
-	int		teamTask, teamLeader, team, handicap,shouldRespawn;
+	int		teamTask, teamLeader, team, shouldRespawn;
 	char	*s;
 	char	model[MAX_QPATH];
 	char	headModel[MAX_QPATH];
@@ -667,7 +667,6 @@ void ClientUserinfoChanged( int clientNum ) {
 	}
 	Q_strncpyz(ent->modelName,model,sizeof(ent->modelName));
 	// set max powerLevel
-	handicap = atoi( Info_ValueForKey( userinfo, "handicap" ) );
 	client->playerEntity = ent;
 
 	// setup tier information
@@ -945,7 +944,6 @@ void ClientSpawn(gentity_t *ent) {
 	clientPersistant_t	saved;
 	clientSession_t		savedSess;
 	int		persistant[MAX_PERSISTANT];
-	gentity_t	*spawnPoint;
 	int		flags;
 	int		savedPing;
 	int		eventSequence;
@@ -957,11 +955,11 @@ void ClientSpawn(gentity_t *ent) {
 	// do it before setting powerLevel back up, so farthest
 	// ranging doesn't count this client
 	if(client->sess.sessionTeam == TEAM_SPECTATOR){
-		spawnPoint = SelectSpectatorSpawnPoint(spawn_origin, spawn_angles);
+		SelectSpectatorSpawnPoint(spawn_origin, spawn_angles);
 	}
 	else if (g_gametype.integer >= GT_CTF ){
 		// all base oriented team games use the CTF spawn points
-		spawnPoint = SelectCTFSpawnPoint(client->sess.sessionTeam,client->pers.teamState.state,spawn_origin, spawn_angles, qtrue);
+		SelectCTFSpawnPoint(client->sess.sessionTeam,client->pers.teamState.state,spawn_origin, spawn_angles, qtrue);
 	}
 	else
 	{
@@ -969,13 +967,13 @@ void ClientSpawn(gentity_t *ent) {
 		if ( !client->pers.initialSpawn && client->pers.localClient )
 		{
 			client->pers.initialSpawn = qtrue;
-			spawnPoint = SelectInitialSpawnPoint(spawn_origin, spawn_angles,
+			SelectInitialSpawnPoint(spawn_origin, spawn_angles,
 							     !!(ent->r.svFlags & SVF_BOT));
 		}
 		else
 		{
 			// don't spawn near existing origin if possible
-			spawnPoint = SelectSpawnPoint ( 
+			SelectSpawnPoint (
 				client->ps.origin, 
 				spawn_origin, spawn_angles, !!(ent->r.svFlags & SVF_BOT));
 		}

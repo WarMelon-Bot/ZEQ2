@@ -1428,7 +1428,7 @@ void Com_Meminfo_f( void ) {
 	Com_Printf( "        %8i bytes in dynamic botlib\n", botlibBytes );
 	Com_Printf( "        %8i bytes in dynamic renderer\n", rendererBytes );
 	Com_Printf( "        %8i bytes in dynamic other\n", zoneBytes - ( botlibBytes + rendererBytes ) );
-	Com_Printf( "        %8i bytes in small Zone memory\n", smallZoneBytes );
+	Com_Printf( "        %8i bytes in %i small Zone blocks\n", smallZoneBytes, smallZoneBlocks );
 }
 
 /*
@@ -1441,7 +1441,7 @@ Touch all known used data to make sure it is paged in
 void Com_TouchMemory( void ) {
 	int		start, end;
 	size_t	i, j;
-	int		sum;
+	volatile int sum;
 	memblock_t	*block;
 
 	Z_CheckHeap();
@@ -1473,6 +1473,7 @@ void Com_TouchMemory( void ) {
 		}
 	}
 
+	(void)sum;		// keep the page-touching reads live
 	end = Sys_Milliseconds();
 
 	Com_Printf( "Com_TouchMemory: %i msec\n", end - start );
@@ -2538,7 +2539,7 @@ A way to force a bus error for development reasons
 =================
 */
 static void Com_Crash_f( void ) {
-	* ( int * ) 0 = 0x12345678;
+	* ( volatile int * ) 0 = 0x12345678;
 }
 
 /*

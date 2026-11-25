@@ -15,11 +15,9 @@ false already.)
 */
 int G_weapPhys_FindImportRef( g_weapPhysParser_t *parser, char *refname ) {
 	g_weapPhysImportRef_t	*importList;
-	g_weapPhysScanner_t		*scanner;
 	int i;
 
 	importList = parser->importRef;
-	scanner = &parser->scanner;
 
 
 	for ( i = 0; i < MAX_IMPORTS; i++ ) {

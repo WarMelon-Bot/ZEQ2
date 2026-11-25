@@ -503,7 +503,7 @@ qboolean CG_weapGfx_ParseAnimationRange( cg_weapGfxParser_t *parser, cg_weapGfxC
 				// Make sure this range is not inverted!
 				// NOTE: This is the only range that must NOT be inverted.
 				if ( token->intval < cg_weapGfxBuffer.chargeStartPct ) {
-					CG_weapGfx_ErrorHandle( ERROR_INVERTED_RANGE, scanner, token->stringval, va("%s", cg_weapGfxBuffer.chargeStartPct) );
+					CG_weapGfx_ErrorHandle( ERROR_INVERTED_RANGE, scanner, token->stringval, va("%i", cg_weapGfxBuffer.chargeStartPct) );
 					return qfalse;
 				} else {
 					if ( token->intval > 100 ) {
@@ -692,7 +692,7 @@ Syntax:
 qboolean CG_weapGfx_ParseDlight( cg_weapGfxParser_t *parser, cg_weapGfxCategoryIndex_t category, int field ) {
 	cg_weapGfxToken_t	*token;
 	cg_weapGfxScanner_t	*scanner;
-	vec3_t	RGB;
+	vec3_t	RGB = { 0, 0, 0 };
 
 	scanner = &parser->scanner;
 	token = &parser->token;

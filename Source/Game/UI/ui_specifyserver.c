@@ -102,7 +102,6 @@ SpecifyServer_MenuInit
 */
 void SpecifyServer_MenuInit( void )
 {
-	int y;
 	// zero set all our globals
 	memset( &s_specifyserver, 0 ,sizeof(specifyserver_t) );
 
@@ -159,7 +158,6 @@ void SpecifyServer_MenuInit( void )
 	s_specifyserver.go.string				= "FIGHT!";
 	s_specifyserver.go.style				= UI_LEFT | UI_DROPSHADOW | UI_TINYFONT;
 	s_specifyserver.go.color				= color_white;
-	y+=38;
 
 	s_specifyserver.back.generic.type		= MTYPE_PTEXT;
 	s_specifyserver.back.generic.flags		= QMF_LEFT_JUSTIFY|QMF_PULSEIFFOCUS;
@@ -170,7 +168,6 @@ void SpecifyServer_MenuInit( void )
 	s_specifyserver.back.string				= "BACK";
 	s_specifyserver.back.style				= UI_LEFT | UI_DROPSHADOW | UI_TINYFONT;
 	s_specifyserver.back.color				= color_white;
-	y+=38;	
 
 	Menu_AddItem( &s_specifyserver.menu, &s_specifyserver.domain );
 	Menu_AddItem( &s_specifyserver.menu, &s_specifyserver.port );

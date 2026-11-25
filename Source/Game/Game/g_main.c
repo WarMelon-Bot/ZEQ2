@@ -324,7 +324,7 @@ void G_FindTeams( void ) {
 	G_Printf ("%i teams with %i entities\n", c, c2);
 }
 
-void G_RemapTeamShaders(){}
+void G_RemapTeamShaders(void){}
 
 
 /*
@@ -732,10 +732,6 @@ and team change.
 */
 void CalculateRanks( void ) {
 	int		i;
-	int		rank;
-	int		score;
-	int		newScore;
-	gclient_t	*cl;
 
 	level.follow1 = -1;
 	level.follow2 = -1;
@@ -743,7 +739,8 @@ void CalculateRanks( void ) {
 	level.numNonSpectatorClients = 0;
 	level.numPlayingClients = 0;
 	level.numVotingClients = 0;		// don't count bots
-	for ( i = 0; i < TEAM_NUM_TEAMS; i++ ) {
+	// only red and blue have team vote counters
+	for ( i = 0; i < 2; i++ ) {
 		level.numteamVotingClients[i] = 0;
 	}
 	qsort( level.sortedClients, level.numConnectedClients, 
@@ -1438,8 +1435,6 @@ Advances the non-player objects in the world
 void G_RunFrame( int levelTime ) {
 	int			i;
 	gentity_t	*ent;
-	int			msec;
-	int start, end;
 
 	// if we are waiting for the level to restart, do nothing
 	if ( level.restarted ) {
@@ -1449,7 +1444,6 @@ void G_RunFrame( int levelTime ) {
 	level.framenum++;
 	level.previousTime = level.time;
 	level.time = levelTime;
-	msec = level.time - level.previousTime;
 
 	// get any cvar changes
 	G_UpdateCvars();
@@ -1457,7 +1451,7 @@ void G_RunFrame( int levelTime ) {
 	//
 	// go through all allocated objects
 	//
-	start = trap_Milliseconds();
+	trap_Milliseconds();
 	ent = &g_entities[0];
 	for (i=0 ; i<level.num_entities ; i++, ent++) {
 		if ( !ent->inuse ) {
@@ -1528,9 +1522,9 @@ void G_RunFrame( int levelTime ) {
 
 		G_RunThink( ent );
 	}
-	end = trap_Milliseconds();
+	trap_Milliseconds();
 
-	start = trap_Milliseconds();
+	trap_Milliseconds();
 	// perform final fixups on the players
 	ent = &g_entities[0];
 	for (i=0 ; i < level.maxclients ; i++, ent++ ) {
@@ -1538,7 +1532,7 @@ void G_RunFrame( int levelTime ) {
 			ClientEndFrame( ent );
 		}
 	}
-	end = trap_Milliseconds();
+	trap_Milliseconds();
 
 	G_RadarUpdateCS();
 

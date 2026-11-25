@@ -71,7 +71,6 @@ int CG_GetMilliseconds(char *time){
 	int index,compareIndex;
 	int amount;
 	char current[8];
-	int i;
 	index = 0;
 	compareIndex = 0;
 	amount = 0;
@@ -91,7 +90,7 @@ int CG_GetMilliseconds(char *time){
 }
 void CG_ParsePlaylist(void){
 	fileHandle_t playlist;
-	char *token,*parse,*name;
+	char *token,*parse;
 	char first,last;
 	int trackIndex,typeIndex;
 	int fileLength;
@@ -159,11 +158,10 @@ void CG_NextTrack(void){
 	int nextIndex;
 	int typeSize;
 	char *path;
-	int i;
 	int duration;
 	if(cgs.music.fading){return;}
 	typeSize = cgs.music.typeSize[cgs.music.currentType];
-	nextIndex = (nextIndex < typeSize) ? cgs.music.currentIndex + 1 : 0;
+	nextIndex = (cgs.music.currentIndex < typeSize) ? cgs.music.currentIndex + 1 : 0;
 	if(cgs.music.random){
 		nextIndex = fabs(crandom()) * typeSize;
 	}

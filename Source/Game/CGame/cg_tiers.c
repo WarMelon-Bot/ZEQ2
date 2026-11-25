@@ -14,9 +14,9 @@ qboolean CG_RegisterClientModelnameWithTiers(clientInfo_t *ci, const char *model
 	Com_sprintf(legsPath,sizeof(legsPath),"%s",modelName);
 	Com_sprintf(headPath,sizeof(headPath),"%s",modelName);
 	Com_sprintf(tempPath,sizeof(tempPath),"players/%s/animation.cfg",ci->legsModelName);
-	if(ci->legsModelName && trap_FS_FOpenFile(tempPath,0,FS_READ)>0){Com_sprintf(legsPath,sizeof(legsPath),"%s",ci->legsModelName);}
+	if(trap_FS_FOpenFile(tempPath,0,FS_READ)>0){Com_sprintf(legsPath,sizeof(legsPath),"%s",ci->legsModelName);}
 	Com_sprintf(tempPath,sizeof(tempPath),"players/%s/animation.cfg",ci->headModelName);
-	if(ci->headModelName && trap_FS_FOpenFile(tempPath,0,FS_READ)>0){Com_sprintf(headPath,sizeof(headPath),"%s",ci->headModelName);}
+	if(trap_FS_FOpenFile(tempPath,0,FS_READ)>0){Com_sprintf(headPath,sizeof(headPath),"%s",ci->headModelName);}
 	//Com_Printf("RegisterClientModelnameWithTiers: before animation load ci->usingMD4 = %i\n", ci->usingMD4);
 	Com_sprintf(filename,sizeof(filename),"players/%s/animation.cfg",modelName);
 	if(!CG_ParseAnimationFile(filename,ci)){
@@ -61,7 +61,7 @@ qboolean CG_RegisterClientModelnameWithTiers(clientInfo_t *ci, const char *model
 			Com_sprintf(tierPath,sizeof(tierPath),"players/%s/tier%i/",modelName,i+1);
 			ci->tierConfig[i].soundPoweringUp = trap_S_RegisterSound(strcat(tierPath,"poweringUp.ogg"),qfalse);
 		}
-		Com_sprintf(filename,sizeof(filename),"players/tierDefault.cfg",modelName,i+1);
+		Com_sprintf(filename,sizeof(filename),"players/tierDefault.cfg");
 		parseTier(filename,&ci->tierConfig[i]);
 		Com_sprintf(filename,sizeof(filename),"players/%s/tier%i/tier.cfg",modelName,i+1);
 		parseTier(filename,&ci->tierConfig[i]);

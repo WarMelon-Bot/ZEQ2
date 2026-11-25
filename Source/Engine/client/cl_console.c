@@ -517,22 +517,14 @@ Draws the last few lines of output transparently over the game top
 */
 void Con_DrawNotify (void)
 {
-	int		x, v;
+	int		x;
 	short	*text;
 	int		i;
 	int		time;
 	int		currentColor;
-	int 	textSize;
-	vec4_t	background;
-	textSize = 8;
 	currentColor = 7;
 	re.SetColor( g_color_table[currentColor] );
 
-	background[0] = 0.0;
-	background[1] = 0.0;
-	background[2] = 0.0;
-	background[3] = 0.5;
-	v = 0;
 	for (i= con.current-NUM_CON_TIMES+1 ; i<=con.current ; i++)
 	{
 		if (i < 0)
@@ -560,8 +552,6 @@ void Con_DrawNotify (void)
 			//SCR_FillRect(0, y, SIntCREEN_WIDTH,2,color );
 			//SCR_DrawSmallChar( cl_conXOffset->integer + con.xadjust + (x+1)*textSize, v, text[x] & 0xff );
 		}
-
-		v += 60;
 	}
 
 	re.SetColor( NULL );

@@ -130,187 +130,6 @@ void BotDrawDebugPolygons(void (*drawPoly)(int color, int numPoints, float *poin
 
 /*
 ==================
-BotImport_Print
-==================
-*/
-static void QDECL BotImport_Print(int type, char *fmt, ...)
-{
-	char str[2048];
-	va_list ap;
-
-	va_start(ap, fmt);
-	Q_vsnprintf(str, sizeof(str), fmt, ap);
-	va_end(ap);
-
-	switch(type) {
-		case PRT_MESSAGE: {
-			Com_Printf("%s", str);
-			break;
-		}
-		case PRT_WARNING: {
-			Com_Printf(S_COLOR_YELLOW "Warning: %s", str);
-			break;
-		}
-		case PRT_ERROR: {
-			Com_Printf(S_COLOR_RED "Error: %s", str);
-			break;
-		}
-		case PRT_FATAL: {
-			Com_Printf(S_COLOR_RED "Fatal: %s", str);
-			break;
-		}
-		case PRT_EXIT: {
-			Com_Error(ERR_DROP, S_COLOR_RED "Exit: %s", str);
-			break;
-		}
-		default: {
-			Com_Printf("unknown print type\n");
-			break;
-		}
-	}
-}
-
-/*
-==================
-BotImport_Trace
-==================
-*/
-static void BotImport_Trace(bsp_trace_t *bsptrace, vec3_t start, vec3_t mins, vec3_t maxs, vec3_t end, int passent, int contentmask) {
-	trace_t trace;
-
-	SV_Trace(&trace, start, mins, maxs, end, passent, contentmask, qfalse);
-	//copy the trace information
-	bsptrace->allsolid = trace.allsolid;
-	bsptrace->startsolid = trace.startsolid;
-	bsptrace->fraction = trace.fraction;
-	VectorCopy(trace.endpos, bsptrace->endpos);
-	bsptrace->plane.dist = trace.plane.dist;
-	VectorCopy(trace.plane.normal, bsptrace->plane.normal);
-	bsptrace->plane.signbits = trace.plane.signbits;
-	bsptrace->plane.type = trace.plane.type;
-	bsptrace->surface.value = trace.surfaceFlags;
-	bsptrace->ent = trace.entityNum;
-	bsptrace->exp_dist = 0;
-	bsptrace->sidenum = 0;
-	bsptrace->contents = 0;
-}
-
-/*
-==================
-BotImport_EntityTrace
-==================
-*/
-static void BotImport_EntityTrace(bsp_trace_t *bsptrace, vec3_t start, vec3_t mins, vec3_t maxs, vec3_t end, int entnum, int contentmask) {
-	trace_t trace;
-
-	SV_ClipToEntity(&trace, start, mins, maxs, end, entnum, contentmask, qfalse);
-	//copy the trace information
-	bsptrace->allsolid = trace.allsolid;
-	bsptrace->startsolid = trace.startsolid;
-	bsptrace->fraction = trace.fraction;
-	VectorCopy(trace.endpos, bsptrace->endpos);
-	bsptrace->plane.dist = trace.plane.dist;
-	VectorCopy(trace.plane.normal, bsptrace->plane.normal);
-	bsptrace->plane.signbits = trace.plane.signbits;
-	bsptrace->plane.type = trace.plane.type;
-	bsptrace->surface.value = trace.surfaceFlags;
-	bsptrace->ent = trace.entityNum;
-	bsptrace->exp_dist = 0;
-	bsptrace->sidenum = 0;
-	bsptrace->contents = 0;
-}
-
-
-/*
-==================
-BotImport_PointContents
-==================
-*/
-static int BotImport_PointContents(vec3_t point) {
-	return SV_PointContents(point, -1);
-}
-
-/*
-==================
-BotImport_inPVS
-==================
-*/
-static int BotImport_inPVS(vec3_t p1, vec3_t p2) {
-	return SV_inPVS (p1, p2);
-}
-
-/*
-==================
-BotImport_BSPEntityData
-==================
-*/
-static char *BotImport_BSPEntityData(void) {
-	return CM_EntityString();
-}
-
-/*
-==================
-BotImport_BSPModelMinsMaxsOrigin
-==================
-*/
-static void BotImport_BSPModelMinsMaxsOrigin(int modelnum, vec3_t angles, vec3_t outmins, vec3_t outmaxs, vec3_t origin) {
-	clipHandle_t h;
-	vec3_t mins, maxs;
-	float max;
-	int	i;
-
-	h = CM_InlineModel(modelnum);
-	CM_ModelBounds(h, mins, maxs);
-	//if the model is rotated
-	if ((angles[0] || angles[1] || angles[2])) {
-		// expand for rotation
-
-		max = RadiusFromBounds(mins, maxs);
-		for (i = 0; i < 3; i++) {
-			mins[i] = -max;
-			maxs[i] = max;
-		}
-	}
-	if (outmins) VectorCopy(mins, outmins);
-	if (outmaxs) VectorCopy(maxs, outmaxs);
-	if (origin) VectorClear(origin);
-}
-
-/*
-==================
-BotImport_GetMemory
-==================
-*/
-static void *BotImport_GetMemory(int size) {
-	void *ptr;
-
-	ptr = Z_TagMalloc( size, TAG_BOTLIB );
-	return ptr;
-}
-
-/*
-==================
-BotImport_FreeMemory
-==================
-*/
-static void BotImport_FreeMemory(void *ptr) {
-	Z_Free(ptr);
-}
-
-/*
-=================
-BotImport_HunkAlloc
-=================
-*/
-static void *BotImport_HunkAlloc( int size ) {
-	if( Hunk_CheckMark() ) {
-		Com_Error( ERR_DROP, "SV_Bot_HunkAlloc: Alloc with marks already set\n" );
-	}
-	return Hunk_Alloc( size, h_high );
-}
-
-/*
-==================
 BotImport_DebugPolygonCreate
 ==================
 */
@@ -338,22 +157,6 @@ int BotImport_DebugPolygonCreate(int color, int numPoints, vec3_t *points) {
 
 /*
 ==================
-BotImport_DebugPolygonShow
-==================
-*/
-static void BotImport_DebugPolygonShow(int id, int color, int numPoints, vec3_t *points) {
-	bot_debugpoly_t *poly;
-
-	if (!debugpolygons) return;
-	poly = &debugpolygons[id];
-	poly->inuse = qtrue;
-	poly->color = color;
-	poly->numPoints = numPoints;
-	Com_Memcpy(poly->points, points, numPoints * sizeof(vec3_t));
-}
-
-/*
-==================
 BotImport_DebugPolygonDelete
 ==================
 */
@@ -361,67 +164,6 @@ void BotImport_DebugPolygonDelete(int id)
 {
 	if (!debugpolygons) return;
 	debugpolygons[id].inuse = qfalse;
-}
-
-/*
-==================
-BotImport_DebugLineCreate
-==================
-*/
-static int BotImport_DebugLineCreate(void) {
-	vec3_t points[1];
-	return BotImport_DebugPolygonCreate(0, 0, points);
-}
-
-/*
-==================
-BotImport_DebugLineDelete
-==================
-*/
-static void BotImport_DebugLineDelete(int line) {
-	BotImport_DebugPolygonDelete(line);
-}
-
-/*
-==================
-BotImport_DebugLineShow
-==================
-*/
-static void BotImport_DebugLineShow(int line, vec3_t start, vec3_t end, int color) {
-	vec3_t points[4], dir, cross, up = {0, 0, 1};
-	float dot;
-
-	VectorCopy(start, points[0]);
-	VectorCopy(start, points[1]);
-	//points[1][2] -= 2;
-	VectorCopy(end, points[2]);
-	//points[2][2] -= 2;
-	VectorCopy(end, points[3]);
-
-
-	VectorSubtract(end, start, dir);
-	VectorNormalize(dir);
-	dot = DotProduct(dir, up);
-	if (dot > 0.99 || dot < -0.99) VectorSet(cross, 1, 0, 0);
-	else CrossProduct(dir, up, cross);
-
-	VectorNormalize(cross);
-
-	VectorMA(points[0], 2, cross, points[0]);
-	VectorMA(points[1], -2, cross, points[1]);
-	VectorMA(points[2], -2, cross, points[2]);
-	VectorMA(points[3], 2, cross, points[3]);
-
-	BotImport_DebugPolygonShow(line, color, 4, points);
-}
-
-/*
-==================
-SV_BotClientCommand
-==================
-*/
-static void BotClientCommand( int client, char *command ) {
-	SV_ExecuteClientCommand( &svs.clients[client], command, qtrue );
 }
 
 /*
@@ -516,45 +258,12 @@ SV_BotInitBotLib
 ==================
 */
 void SV_BotInitBotLib(void) {
-	botlib_import_t	botlib_import;
-
 	if (debugpolygons) Z_Free(debugpolygons);
 	bot_maxdebugpolys = Cvar_VariableIntegerValue("bot_maxdebugpolys");
 	debugpolygons = Z_Malloc(sizeof(bot_debugpoly_t) * bot_maxdebugpolys);
 
-	botlib_import.Print = BotImport_Print;
-	botlib_import.Trace = BotImport_Trace;
-	botlib_import.EntityTrace = BotImport_EntityTrace;
-	botlib_import.PointContents = BotImport_PointContents;
-	botlib_import.inPVS = BotImport_inPVS;
-	botlib_import.BSPEntityData = BotImport_BSPEntityData;
-	botlib_import.BSPModelMinsMaxsOrigin = BotImport_BSPModelMinsMaxsOrigin;
-	botlib_import.BotClientCommand = BotClientCommand;
-
-	//memory management
-	botlib_import.GetMemory = BotImport_GetMemory;
-	botlib_import.FreeMemory = BotImport_FreeMemory;
-	botlib_import.AvailableMemory = Z_AvailableMemory;
-	botlib_import.HunkAlloc = BotImport_HunkAlloc;
-
-	// file system access
-	botlib_import.FS_FOpenFile = FS_FOpenFileByMode;
-	botlib_import.FS_Read = FS_Read2;
-	botlib_import.FS_Write = FS_Write;
-	botlib_import.FS_FCloseFile = FS_FCloseFile;
-	botlib_import.FS_Seek = FS_Seek;
-
-	//debug lines
-	botlib_import.DebugLineCreate = BotImport_DebugLineCreate;
-	botlib_import.DebugLineDelete = BotImport_DebugLineDelete;
-	botlib_import.DebugLineShow = BotImport_DebugLineShow;
-
-	//debug polygons
-	botlib_import.DebugPolygonCreate = BotImport_DebugPolygonCreate;
-	botlib_import.DebugPolygonDelete = BotImport_DebugPolygonDelete;
-
-	//botlib_export = (botlib_export_t *)GetBotLibAPI( BOTLIB_API_VERSION, &botlib_import );
-	//assert(botlib_export); 	// somehow we end up with a zero import.
+	// GetBotLibAPI is not called in this build, so there is no import
+	// structure to populate here.
 }
 
 

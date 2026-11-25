@@ -94,7 +94,6 @@ static const char *gametype_items[] = {
 };
 
 static int gametype_remap[] = {GT_FFA, GT_TEAM, GT_STRUGGLE,GT_TOURNAMENT, GT_CTF};
-static int gametype_remap2[] = {0, 2, 0, 1, 3};
 
 
 static void UI_ServerOptionsMenu( qboolean multiplayer );

@@ -1076,13 +1076,10 @@ R_CreateFogImage
 static void R_CreateFogImage( void ) {
 	int		x,y;
 	byte	*data;
-	float	g;
 	float	d;
 	float	borderColor[4];
 
 	data = ri.Hunk_AllocateTempMemory( FOG_S * FOG_T * 4 );
-
-	g = 2.0;
 
 	// S is distance, T is depth
 	for (x=0 ; x<FOG_S ; x++) {
@@ -1173,7 +1170,7 @@ void R_CreateMotionBlurImage( void ) {
 	ri.Printf( PRINT_ALL, "Motionblur image set; width: %i  height: %i\n", width, height );
 
 	data = ri.Hunk_AllocateTempMemory( width * height * 4 );
-	Com_Memset( data, 0, sizeof( data ));	
+	Com_Memset( data, 0, width * height * 4 );
 
 	tr.motionBlurImage = R_CreateImage("*motionblur", (byte *)data, width, height, qfalse, qfalse, GL_CLAMP );
 

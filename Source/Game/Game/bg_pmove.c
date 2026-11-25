@@ -180,7 +180,7 @@ void PM_StopDirections(void){
 	pm->cmd.rightmove = 0;
 }
 void PM_CheckKnockback(void){
-	vec3_t pre_vel,post_vel,wishvel,wishdir,direction;
+	vec3_t post_vel,wishvel,wishdir,direction;
 	qboolean vertical;
 	float scale,wishspeed;
 	int i,speed;
@@ -238,7 +238,6 @@ void PM_CheckKnockback(void){
 		wishspeed = VectorNormalize(wishdir);
 		PM_Accelerate(wishdir,wishspeed,50);
 		VectorNormalize(pm->ps->velocity);
-		VectorCopy(pm->ps->velocity,pre_vel);
 		speed = pm->ps->powerups[PW_KNOCKBACK_SPEED];
 		if((pm->cmd.buttons & BUTTON_ALT_ATTACK) && (pm->ps->timers[tmKnockback] < 4000)){
 			pm->ps->powerLevel[plUseFatigue] += ((float)pm->ps->timers[tmKnockback] / 5000.0) * (0.2 * pm->ps->powerLevel[plFatigue]);
@@ -286,7 +285,7 @@ void PM_StopZanzoken(void){
 	pm->ps->timers[tmZanzoken] = 0;
 }
 void PM_CheckZanzoken(void){
-	vec3_t pre_vel, post_vel,minSize,maxSize,forward,up,end;
+	vec3_t post_vel,minSize,maxSize,forward,end;
 	int speed,cost;
 	trace_t trace;
 	if(pm->ps->powerLevel[plFatigue] <= 1){
@@ -315,7 +314,6 @@ void PM_CheckZanzoken(void){
 			pm->ps->timers[tmZanzoken] = 0;
 		}
 		VectorNormalize(pm->ps->velocity);
-		VectorCopy(pm->ps->velocity,pre_vel);
 		if(pm->ps->lockedTarget > 0){speed *= 1.5;}
 		VectorScale(pm->ps->velocity,speed,pm->ps->velocity);
 		VectorNormalize2(pm->ps->velocity,post_vel);
@@ -334,7 +332,7 @@ void PM_CheckZanzoken(void){
 /*===============
 POWER LEVEL
 ===============*/
-void PM_UsePowerLevel(){
+void PM_UsePowerLevel(void){
 	int newValue,amount,stat,useType,limit;
 	useType = 0;
 	limit = pm->ps->powerLevel[plLimit];
@@ -380,7 +378,7 @@ void PM_UsePowerLevel(){
 		useType += 1;
 	}
 }
-void PM_BurnPowerLevel(){
+void PM_BurnPowerLevel(void){
 	float percent;
 	int defense;
 	int burn,initial;
@@ -592,12 +590,11 @@ qboolean PM_CheckTransform(void){
 	return qfalse;
 }
 void PM_CheckPowerLevel(void){
-	int plSpeed,amount,limit;
+	int limit;
 	int *timers,*powerLevel;
 	float lower,raise,recovery;
 	float statScale;
 	float fatigueScale;
-	float check;
 	float pushLimit;
 	int newValue;
 	int idleScale;
@@ -852,6 +849,7 @@ PM_Friction
 ==================*/
 void PM_Friction(void){
 	float speed,newspeed,control,drop;
+	drop = 0;
 	speed = VectorLength(pm->ps->velocity);
 	if(speed < 5){
 		PM_StopDash();
@@ -991,8 +989,7 @@ void PM_StopJump(void){
 }
 void PM_CheckJump(void){
 	int jumpPower;
-	float jumpScale,jumpEmphasis;
-	vec3_t pre_vel,post_vel;
+	vec3_t post_vel;
 	if(!(pm->ps->states & canJump)){return;}
 	if(pm->ps->bitFlags & usingBallFlip){return;}
 	if(pm->ps->bitFlags & usingJump){
@@ -1013,11 +1010,9 @@ void PM_CheckJump(void){
 	PM_StopDash();
 	pm->ps->bitFlags |= usingJump;
 	jumpPower = pm->ps->stats[stSpeed];
-	jumpEmphasis = 2500.0;
 	pm->ps->gravity[2] = 12000;
 	pm->ps->velocity[2] = 0;
 	VectorNormalize(pm->ps->velocity);
-	VectorCopy(pm->ps->velocity,pre_vel);
 	VectorScale(pm->ps->velocity,2500.0,pm->ps->velocity);
 	VectorNormalize2(pm->ps->velocity,post_vel);
 	if((pm->cmd.forwardmove != 0) || (pm->cmd.rightmove != 0)){
@@ -1271,8 +1266,8 @@ void PM_AirMove(void){
 	usercmd_t	cmd;
 	backupDrift = pm->cmd.forwardmove;
 	if((!pm->ps->powerups[PW_DRIFTING] && pm->ps->timers[tmMeleeIdle] >= 0) && (pml.onGround
-		|| (pm->cmd.buttons & BUTTON_POWERLEVEL && !VectorLength(pm->ps->velocity))
-		&& !(pm->ps->bitFlags & isUnconcious) && !(pm->ps->bitFlags & isDead) && !(pm->ps->bitFlags & isCrashed))){return;}
+		|| ((pm->cmd.buttons & BUTTON_POWERLEVEL && !VectorLength(pm->ps->velocity))
+		&& !(pm->ps->bitFlags & isUnconcious) && !(pm->ps->bitFlags & isDead) && !(pm->ps->bitFlags & isCrashed)))){return;}
 	if(pm->ps->bitFlags & isGuiding){return;}
 	if(!(pm->ps->bitFlags & usingFlight)){
 		if((pm->ps->states & canBallFlip)){
@@ -1765,7 +1760,7 @@ void PM_Footsteps(void){
 	int	old;
 	qboolean footstep;
 	if(pm->ps->bitFlags & usingZanzoken || pm->ps->bitFlags & usingJump || pm->ps->bitFlags & usingBallFlip){return;}
-	if(pm->ps->bitFlags & keyTierUp || pm->ps->bitFlags & keyTierDown && VectorLength(pm->ps->velocity) <= 5){return;}
+	if((pm->ps->bitFlags & keyTierUp) || ((pm->ps->bitFlags & keyTierDown) && (VectorLength(pm->ps->velocity) <= 5))){return;}
 	if((pm->ps->bitFlags & usingAlter) && (VectorLength(pm->ps->velocity) <= 5)){
 		if(pm->cmd.rightmove < 0){
 			PM_ContinueLegsAnim(ANIM_IDLE);
@@ -2271,14 +2266,13 @@ void PM_MeleeIdle(void){
 	}
 }
 void PM_Melee(void){
-	int meleeCharge,enemyState,state,option,damage,distance,animation,direction,entity;
-	qboolean charging,movingForward,idleTime,enemyChanged,enemyDefense;
+	int meleeCharge,enemyState,state,damage,distance,animation,direction;
+	qboolean charging,enemyChanged,enemyDefense;
 	qtime_t realRandom;
 	trap_RealTime(&realRandom);
 	if(pm->ps->persistant[PERS_TEAM] == TEAM_SPECTATOR || pm->ps->bitFlags & isStruggling || pm->ps->timers[tmMeleeIdle] < 0){return;}
 	charging = (pm->ps->weaponstate == WEAPON_CHARGING || pm->ps->weaponstate == WEAPON_ALTCHARGING) ? qtrue : qfalse;
 	state = pm->ps->stats[stMeleeState];
-	idleTime = qfalse;
 	distance = 9000;
 	pm->ps->timers[tmUpdateMelee] += pml.msec;
 	// ===================
@@ -2919,7 +2913,7 @@ void PM_StopLockon(void){
 void PM_CheckLockon(void){
 	int	lockBox;
 	trace_t	trace;
-	vec3_t minSize,maxSize,forward,up,end;
+	vec3_t minSize,maxSize,forward,end;
 	if(pm->ps->lockedTarget > 0){
 		pm->ps->lockedPlayerData[lkPowerCurrent] = pm->ps->lockedPlayer->powerLevel[plCurrent];
 		pm->ps->lockedPlayerData[lkPowerHealth] = pm->ps->lockedPlayer->powerLevel[plHealth];
@@ -3107,7 +3101,6 @@ PmoveSingle
 ================*/
 void trap_SnapVector(float *v );
 void PmoveSingle(pmove_t *pmove){
-	int state;
 	qboolean meleeRange;
 	pm = pmove;
 	c_pmove++;

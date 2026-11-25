@@ -347,8 +347,8 @@ Draws bounding box outlines for debugging
 ================
 */
 void DrawBones (skel_t *pose) {
-	int i,j,k;
-	vec3_t boneStart, boneEnd;
+	int i;
+	vec3_t boneEnd;
 	GL_Bind( tr.whiteImage );
 	qglColor3f (1,1,1);
 	qglDepthRange( 0, 0 );	// never occluded
@@ -848,51 +848,6 @@ static void RB_FogPass( void ) {
 	for ( i = 0; i < tess.numVertexes; i++ ) {
 		* ( int * )&tess.svars.colors[i] = fog->colorInt;
 	}
-
-	RB_CalcFogTexCoords( ( float * ) tess.svars.texcoords[0] );
-
-	GL_Bind( tr.fogImage );
-
-	if ( tess.shader->fogPass == FP_EQUAL ) {
-		GL_State( GLS_SRCBLEND_SRC_ALPHA | GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA | GLS_DEPTHFUNC_EQUAL );
-	} else {
-		GL_State( GLS_SRCBLEND_SRC_ALPHA | GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA );
-	}
-
-	R_DrawElements( tess.numIndexes, tess.indexes );
-}
-
-
-/*
-===================
-RB_HazePass
-
-Blends a fog texture on top of everything but the skybox
-===================
-*/
-static void RB_HazePass( void ) {
-	int			i;
-	unsigned int color[3], colorInt;
-
-	// TODO; Get color from worlspawn. Use black for now.
-	color[0] = 0;
-	color[1] = 0;
-	color[2] = 0;
-	
-	colorInt = ColorBytes4( color[0] * tr.identityLight, color[1] * tr.identityLight, color[2] * tr.identityLight, 1.0 );
-
-	qglEnableClientState( GL_COLOR_ARRAY );
-	qglColorPointer( 4, GL_UNSIGNED_BYTE, 0, tess.svars.colors );
-
-	qglEnableClientState( GL_TEXTURE_COORD_ARRAY);
-	qglTexCoordPointer( 2, GL_FLOAT, 0, tess.svars.texcoords[0] );
-
-	//fog = tr.world->fogs + tess.fogNum;
-
-	for ( i = 0; i < tess.numVertexes; i++ ) {
-		* ( int * )&tess.svars.colors[i] = colorInt;
-	}
-
 
 	RB_CalcFogTexCoords( ( float * ) tess.svars.texcoords[0] );
 
@@ -1465,11 +1420,8 @@ void RB_StageIteratorGeneric( void )
 void RB_StageIteratorVertexLitTexture( void )
 {
 	shaderCommands_t *input;
-	shader_t		*shader;
 
 	input = &tess;
-
-	shader = input->shader;
 
 	//
 	// compute colors

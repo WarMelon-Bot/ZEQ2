@@ -232,7 +232,7 @@ RB_SurfaceMD4
 */
 void RB_SurfaceMD4( md4bSurface_t *surface ) {
 	int				i,j,k;
-	int				*cmap,lod,tessStart;
+	int				lod;
 	md4bVertex_t		*v;
 	md4bTriangle_t	*tris;
 	trRefEntity_t	*cent;
@@ -255,11 +255,9 @@ void RB_SurfaceMD4( md4bSurface_t *surface ) {
 	RB_CheckOverflow( surface->numVerts, surface->numTris * 3 );
 
 	// set surf lod by the collapse map
-	cmap = (int *)((byte *)surface + surface->ofsCollapseMap );
 	tris = (md4bTriangle_t *) ((byte *)surface + surface->ofsTris);
 	lod = (int)(surface->numVerts);//(int)(surface->numVerts - ((surface->numVerts - surface->minLod)*((float)surface->lodBias/8.0f)));
 
-	tessStart = tess.numIndexes;
 	// go through all tris
 	for(i=0;i<surface->numTris;i++,tris++) {
 		int	tempTri[3];
@@ -290,15 +288,11 @@ void RB_SurfaceMD4( md4bSurface_t *surface ) {
 	// this loops surf->numVerts if lodBias is 0, or surf->minLod if lodBias is 4
 	v = (md4bVertex_t *) ((byte *)surface + surface->ofsVerts);
 	for(i=0;i<lod;i++) {
-		vec3_t	tempVert, tempNormal, rotMatrix[3], rotMatrix2[3];
-		vec4_t	matrix,baseMatrix, origin;
-		qboolean setWeight;
-		vec3_t norm, normPerWeight[16];
+		vec3_t	tempVert, tempNormal;
+		vec4_t	matrix;
 		md4bWeight_t	*w;
-		vec_t currentWeight;
 		VectorClear(tempVert);
 		VectorClear(tempNormal);
-		currentWeight = 0.0;
 		//VectorCopy(cent->e.skel.bones[w->boneIndex].origin,origin);
 		w = v->weights;
 		
@@ -314,7 +308,6 @@ void RB_SurfaceMD4( md4bSurface_t *surface ) {
 				// deform vertex by bone weight
 				tempVert[k] += weight * ( DotProduct( w->offset, matrix ) + matrix[3] );
 
-				normPerWeight[j][k] = DotProduct( v->normal, matrix );
 				tempNormal[k] += weight * DotProduct( w->normalOffset, matrix );
 			}
 			
@@ -337,10 +330,6 @@ void RB_SurfaceMD4( md4bSurface_t *surface ) {
 		tess.numVertexes++;
 
 		v = (md4bVertex_t *)&v->weights[v->numWeights];
-	}
-	for(i=0;i<surface->numTris;i++,tris++) {
-		int	tempTri[3];
-		
 	}
 }
 
@@ -471,7 +460,6 @@ int R_GetPoseForFrame( skel_t *skel, qhandle_t mod, int framenum ) {
 	model_t			*model;
 	md4aFrame_t		*frame;
 	md4aBoneName_t	*boneNames = 0;
-	md4bBoneName_t	*boneNames2 = 0;
 
 	model = R_GetModelByHandle( mod );
 
@@ -484,7 +472,7 @@ int R_GetPoseForFrame( skel_t *skel, qhandle_t mod, int framenum ) {
 		if(framenum >= model->animations->numFrames) framenum = 0;
 	}
 
-	frameSize = (int)( &((md4aFrame_t *)0)->bones[model->animations->numBones] );
+	frameSize = (int)(intptr_t)( &((md4aFrame_t *)0)->bones[model->animations->numBones] );
 	frame = (md4aFrame_t *)((byte *)model->animations + model->animations->ofsFrames + framenum * frameSize);
 
 	boneNames = (md4aBoneName_t *)((byte *)model->animations + model->animations->ofsBones);

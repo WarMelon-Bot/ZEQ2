@@ -399,13 +399,9 @@ CL_JoystickMove
 =================
 */
 void CL_JoystickMove( usercmd_t *cmd ) {
-	int		movespeed;
 	float	anglespeed;
 
-	if ( in_speed.active ^ cl_run->integer ) {
-		movespeed = 2;
-	} else {
-		movespeed = 1;
+	if ( !(in_speed.active ^ cl_run->integer) ) {
 		cmd->buttons |= BUTTON_WALKING;
 	}
 
@@ -613,10 +609,10 @@ usercmd_t CL_CreateCmd( void ) {
 	// draw debug graphs of turning for mouse testing
 	if ( cl_debugMove->integer ) {
 		if ( cl_debugMove->integer == 1 ) {
-			SCR_DebugGraph( abs(cl.viewangles[YAW] - oldAngles[YAW]), 0 );
+			SCR_DebugGraph( Q_fabs( cl.viewangles[YAW] - oldAngles[YAW] ), 0 );
 		}
 		if ( cl_debugMove->integer == 2 ) {
-			SCR_DebugGraph( abs(cl.viewangles[PITCH] - oldAngles[PITCH]), 0 );
+			SCR_DebugGraph( Q_fabs( cl.viewangles[PITCH] - oldAngles[PITCH] ), 0 );
 		}
 	}
 
@@ -632,7 +628,6 @@ Create a new usercmd_t structure for this frame
 =================
 */
 void CL_CreateNewCommands( void ) {
-	usercmd_t	*cmd;
 	int			cmdNum;
 
 	// no need to create usercmds until we have a gamestate
@@ -654,7 +649,6 @@ void CL_CreateNewCommands( void ) {
 	cl.cmdNumber++;
 	cmdNum = cl.cmdNumber & CMD_MASK;
 	cl.cmds[cmdNum] = CL_CreateCmd ();
-	cmd = &cl.cmds[cmdNum];
 }
 
 /*

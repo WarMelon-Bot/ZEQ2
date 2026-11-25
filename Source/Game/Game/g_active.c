@@ -317,30 +317,16 @@ but any server game effects are handled here
 ================
 */
 void ClientEvents( gentity_t *ent, int oldEventSequence ) {
-	int			i, j;
+	int			i;
 	int			event;
-	int 		tier;
-	int			distance;
-	int 		enemyMelee,playerMelee;
 	gclient_t	*client;
 	gentity_t	*enemy;
-	int			damage;
-	int			amount;
-	vec3_t		dir;
-	vec3_t		origin, angles;
-//	qboolean	fired;
-	gentity_t	*drop;
 	playerState_t *ps;
-	playerState_t *enemyPS;
 	// ADDING FOR ZEQ2
 	gentity_t	*missile;
 	// END ADDING
 	client = ent->client;
 	ps = &client->ps;
-	if(ps->lockedTarget>0){
-		enemyPS = &g_entities[ps->lockedTarget-1].client->ps;
-	}
-	tier = ps->powerLevel[plTierCurrent];
 	if ( oldEventSequence < client->ps.eventSequence - MAX_PS_EVENTS ) {
 		oldEventSequence = client->ps.eventSequence - MAX_PS_EVENTS;
 	}
@@ -356,7 +342,7 @@ void ClientEvents( gentity_t *ent, int oldEventSequence ) {
 		case EV_CHANGE_WEAPON:
 			break;
 		case EV_ZANZOKEN_START:
-			if(!ps->bitFlags & usingMelee){}
+			if((!ps->bitFlags) & usingMelee){}
 			break;
 		case EV_ALTFIRE_WEAPON:
 			FireWeapon(ent,qtrue);
@@ -369,7 +355,7 @@ void ClientEvents( gentity_t *ent, int oldEventSequence ) {
 			break;
 		case EV_MELEE_CHECK:
 			if(ps->lockedTarget>0){
-				if(!&g_entities[ps->lockedTarget-1].client || &g_entities[ps->lockedTarget-1].client->pers.connected == CON_DISCONNECTED){
+				if(!g_entities[ps->lockedTarget-1].client || g_entities[ps->lockedTarget-1].client->pers.connected == CON_DISCONNECTED){
 					ps->lockedPosition = 0;
 					ps->lockedPlayer = 0;
 					ps->lockedTarget = 0;
@@ -710,13 +696,11 @@ while a slow client may have multiple ClientEndFrame between ClientThink.
 */
 void ClientEndFrame( gentity_t *ent ) {
 //	int			i;
-	clientPersistant_t	*pers;
 	if ( ent->client->sess.sessionTeam == TEAM_SPECTATOR ) {
 		SpectatorClientEndFrame( ent );
 		return;
 	}
 
-	pers = &ent->client->pers;
 	//
 	// If the end of unit layout is displayed, don't give
 	// the player any normal movement attributes

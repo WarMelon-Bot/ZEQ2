@@ -139,8 +139,6 @@ InGame_MenuInit
 */
 void InGame_MenuInit( void ) {
 	int		y;
-	uiClientState_t	cs;
-	char	info[MAX_INFO_STRING];
 
 	memset( &s_ingame, 0 ,sizeof(ingamemenu_t) );
 

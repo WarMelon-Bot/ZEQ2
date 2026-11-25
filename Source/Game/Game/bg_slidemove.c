@@ -48,7 +48,6 @@ qboolean	PM_SlideMove( qboolean gravity ) {
 	float		d;
 	int			numplanes;
 	vec3_t		planes[MAX_CLIP_PLANES];
-	vec3_t		primal_velocity;
 	vec3_t		clipVelocity;
 	int			i, j, k;
 	trace_t	trace;
@@ -60,15 +59,12 @@ qboolean	PM_SlideMove( qboolean gravity ) {
 	
 	numbumps = 4;
 
-	VectorCopy (pm->ps->velocity, primal_velocity);
-
 	if ( gravity ) {
 		VectorCopy( pm->ps->velocity, endVelocity );
 		endVelocity[0] -= pm->ps->gravity[0] * pml.frametime;
 		endVelocity[1] -= pm->ps->gravity[1] * pml.frametime;
 		endVelocity[2] -= pm->ps->gravity[2] * pml.frametime;
 		pm->ps->velocity[2] = ( pm->ps->velocity[2] + endVelocity[2] ) * 0.5;
-		primal_velocity[2] = endVelocity[2];
 		if ( pml.groundPlane ) {
 			// slide along the ground plane
 			PM_ClipVelocity (pm->ps->velocity, pml.groundTrace.plane.normal, 
@@ -229,7 +225,6 @@ PM_StepSlideMove
 */
 void PM_StepSlideMove( qboolean gravity ) {
 	vec3_t		start_o, start_v;
-	vec3_t		down_o, down_v;
 	trace_t		trace;
 //	float		down_dist, up_dist;
 //	vec3_t		delta, delta2;
@@ -249,8 +244,6 @@ void PM_StepSlideMove( qboolean gravity ) {
 	VectorSet(up, 0, 0, 1);
 	// never step up when you still have up velocity
 	if(pm->ps->velocity[2] > 0 && (trace.fraction == 1.0 || DotProduct(trace.plane.normal, up) < 0.7)) {return;}
-	VectorCopy (pm->ps->origin, down_o);
-	VectorCopy (pm->ps->velocity, down_v);
 	VectorCopy (start_o, up);
 	up[2] += STEPSIZE;
 	pm->trace (&trace, start_o, pm->mins, pm->maxs, up, pm->ps->clientNum, pm->tracemask);

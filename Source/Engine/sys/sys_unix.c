@@ -359,8 +359,6 @@ char **Sys_ListFiles( const char *directory, const char *extension, char *filter
 	int           i;
 	struct stat   st;
 
-	int           extLen;
-
 	if (filter) {
 
 		nfiles = 0;
@@ -388,8 +386,6 @@ char **Sys_ListFiles( const char *directory, const char *extension, char *filter
 		extension = "";
 		dironly = qtrue;
 	}
-
-	extLen = strlen( extension );
 
 	// search
 	nfiles = 0;
@@ -556,6 +552,7 @@ void Sys_ErrorDialog( const char *error )
 }
 
 #ifndef MACOS_X
+#if !defined( ANDROID )
 /*
 ==============
 Sys_ZenityCommand
@@ -630,6 +627,7 @@ static int Sys_XmessageCommand( dialogType_t type, const char *message, const ch
 
 	return system( command );
 }
+#endif /* !ANDROID */
 
 /*
 ==============

@@ -7,6 +7,7 @@
 #   ./build.sh release         build only the optimized release target (fastest)
 #   ./build.sh test            run allocator unit tests and smoke tests
 #   ./build.sh memory-test     build and run just the allocator unit tests
+#   ./build.sh warnings        clean rebuild that fails on any compiler warning
 #   ./build.sh run [args...]   run the graphical client
 #   ./build.sh smp [args...]   run the multi-threaded renderer client
 #   ./build.sh server [args..] run the dedicated server
@@ -130,6 +131,33 @@ build_release() {
     verify_release_artifacts
     log "Release build complete. Artifacts are in $RELEASE_DIR"
 }
+
+warnings_check() (
+    local tmp_dir logfile count status=0
+    tmp_dir="$(mktemp -d)"
+    logfile="$tmp_dir/build.log"
+    trap 'rm -rf "$tmp_dir"' EXIT
+
+    # Build both configurations in a private directory so every translation
+    # unit is compiled even when a normal incremental build would be up to date.
+    log "Clean rebuild in $tmp_dir; any compiler warning is a failure..."
+    make -C "$SOURCE_DIR" BUILD_DIR="$tmp_dir" release debug \
+        -j"$JOBS" USE_LOCAL_HEADERS=0 $MAKE_ARGS >"$logfile" 2>&1 || status=$?
+
+    if ((status != 0)); then
+        cat "$logfile" >&2
+        die "Warning check build failed with status $status."
+    fi
+
+    count="$(grep -c -E 'warning:|error:' "$logfile" || true)"
+    if ((count > 0)); then
+        log "Compiler diagnostics found ($count):"
+        grep -E 'warning:|error:' "$logfile" | sort -u | head -100 >&2
+        die "Warning check failed: $count compiler diagnostics."
+    fi
+
+    log "Warning check passed: release and debug compiled with no diagnostics."
+)
 
 build_win64() {
     local cc="${WIN64_CC:-x86_64-w64-mingw32-gcc}"
@@ -432,6 +460,7 @@ Commands:
   release   Build only the optimized release target
   test      Run allocator unit tests, then smoke-test server and client
   memory-test  Build and run the zone/hunk allocator unit tests
+  warnings  Fresh release+debug rebuild; fail if any compiler warning appears
   win64     Cross-build Windows x64 server and game modules (needs mingw-w64)
   android   Cross-build ARM Android clients and package a signed APK
   run       Run the graphical client (extra arguments are passed through)
@@ -468,7 +497,8 @@ while (($#)); do
             ;;
         *)
             if [[ "$1" == all || "$1" == deps || "$1" == build || "$1" == release || \
-                  "$1" == test || "$1" == memory-test || "$1" == win64 || "$1" == android || \
+                  "$1" == test || "$1" == memory-test || "$1" == warnings || \
+                  "$1" == win64 || "$1" == android || \
                   "$1" == run || "$1" == smp || "$1" == server || "$1" == clean ]]; then
                 command_name="$1"
             else
@@ -503,6 +533,9 @@ case "$command_name" in
         ;;
     memory-test)
         memory_test
+        ;;
+    warnings)
+        warnings_check
         ;;
     win64)
         build_win64

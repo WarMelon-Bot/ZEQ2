@@ -46,7 +46,6 @@ void syncTier(gclient_t *client){
 	ps->powerLevel[plDrainMaximum] = tier->effectMaximum;
 }
 void checkTier(gclient_t *client){
-	int trigger;
 	int tier = 1;
 	playerState_t *ps;
 	tierConfig_g *nextTier,*baseTier;
@@ -54,7 +53,6 @@ void checkTier(gclient_t *client){
 	if(ps->timers[tmTransform]){return;}
 	while(client->tiers[tier].exists){
 		if(client->tiers[tier].requirementUseSkill && (ps->weapon == client->tiers[tier].requirementUseSkill)){
-			trigger = tier;
 			break;
 		}
 		++tier;
@@ -85,7 +83,7 @@ void checkTier(gclient_t *client){
 		}
 		if(tier > 0){
 			baseTier = &client->tiers[tier];
-			if(!baseTier->permanent && ((baseTier->requirementButton && (ps->bitFlags & keyTierDown)) || !baseTier->requirementButton) ||
+			if((!baseTier->permanent && ((baseTier->requirementButton && (ps->bitFlags & keyTierDown)) || !baseTier->requirementButton)) ||
 			   (ps->powerLevel[plCurrent] < baseTier->sustainCurrent) ||
 			   (ps->powerLevel[plHealth] < baseTier->sustainHealth) ||
 			   (ps->powerLevel[plFatigue] < baseTier->sustainFatigue) ||
@@ -104,7 +102,6 @@ void setupTiers(gclient_t *client){
 	tierConfig_g *tier;
 	char *modelName;
 	char *tierPath;
-	char tempPath[MAX_QPATH];
 	modelName = client->modelName;
 	for(i=0;i<8;i++){
 		tier = &client->tiers[i];
@@ -117,7 +114,6 @@ void setupTiers(gclient_t *client){
 }
 void parseTier(char *path,tierConfig_g *tier){
 	fileHandle_t tierCFG;
-	int i;
 	char *token,*parse;
 	int fileLength;
 	char fileContents[32000];
