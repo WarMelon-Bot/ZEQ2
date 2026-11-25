@@ -705,6 +705,12 @@ qboolean G_weapPhysParser_MainParse( char *filename, int clientNum, int *weaponM
 //
 void G_RadarUpdateCS( void );
 
+// tier and skill helpers shared by the game module
+void checkTier( gclient_t *client );
+void syncTier( gclient_t *client );
+void setupTiers( gclient_t *client );
+void G_CheckSkills( playerState_t *ps );
+
 //
 // g_weapPhysParser.c
 //

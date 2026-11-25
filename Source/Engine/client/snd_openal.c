@@ -2096,11 +2096,15 @@ S_AL_Respatialize
 =================
 */
 static
-void S_AL_Respatialize( int entityNum, const vec3_t origin, vec3_t axis[3], int inwater )
+void S_AL_Respatialize( int entityNum, const vec3_t origin, vec3_t axis[3], int inwater, float attenuation )
 {
 	float		velocity[3] = {0.0f, 0.0f, 0.0f};
 	float		orientation[6];
 	vec3_t	sorigin;
+
+	// OpenAL handles distance attenuation internally when sources are
+	// spatialized; the software mixer's attenuation factor is unused here.
+	(void)attenuation;
 
 	VectorCopy( origin, sorigin );
 	S_AL_SanitiseVector( sorigin );
