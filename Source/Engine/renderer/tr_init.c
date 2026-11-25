@@ -108,6 +108,7 @@ cvar_t	*r_primitives;
 cvar_t	*r_texturebits;
 cvar_t  *r_ext_multisample;
 
+cvar_t	*r_renderer;
 cvar_t	*r_drawBuffer;
 cvar_t	*r_lightmap;
 cvar_t	*r_vertexLight;
@@ -1061,6 +1062,11 @@ void R_Init( void ) {
 	byte *ptr;
 
 	ri.Printf( PRINT_ALL, "----- R_Init -----\n" );
+
+	/* Select the graphics backend before GLimp_Init() creates a surface.  The
+	   setting is latched, so it only takes effect on a vid_restart. */
+	r_renderer = ri.Cvar_Get( "r_renderer", "opengl", CVAR_ARCHIVE | CVAR_LATCH );
+	QGL_SelectBackend( !Q_stricmp( r_renderer->string, "vulkan" ) ? qtrue : qfalse );
 
 	// clear all our internal state
 	Com_Memset( &tr, 0, sizeof( tr ) );

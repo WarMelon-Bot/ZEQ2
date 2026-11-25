@@ -223,6 +223,17 @@ GLimp_Shutdown
 */
 void GLimp_Shutdown( void )
 {
+#ifdef HAVE_VULKAN
+	if ( QGL_UsingVulkan() )
+	{
+		Vkqgl_Shutdown();
+		IN_Shutdown();
+		Com_Memset( &glConfig, 0, sizeof( glConfig ) );
+		Com_Memset( &glState, 0, sizeof( glState ) );
+		return;
+	}
+#endif
+
 	IN_Shutdown();
 
 	SDL_QuitSubSystem( SDL_INIT_VIDEO );
@@ -914,6 +925,34 @@ void GLimp_Init( void )
 	r_allowResize = ri.Cvar_Get( "r_allowResize", "0", CVAR_ARCHIVE );
 	r_centerWindow = ri.Cvar_Get( "r_centerWindow", "0", CVAR_ARCHIVE );
 
+#ifdef HAVE_VULKAN
+	if ( QGL_UsingVulkan() )
+	{
+		if ( Vkqgl_Available() )
+		{
+			QGL_InitVulkanDispatch();
+			if ( Vkqgl_Init() )
+			{
+				char driverName[ 64 ];
+
+				if ( SDL_VideoDriverName( driverName, sizeof( driverName ) - 1 ) )
+				{
+					ri.Cvar_Set( "r_sdlDriver", driverName );
+				}
+				ri.Printf( PRINT_ALL, "GL_RENDERER: %s\n", qglGetString( GL_RENDERER ) );
+				return;
+			}
+			QGL_InitGLDispatch();
+		}
+
+		ri.Printf( PRINT_ALL, "Vulkan backend unavailable, falling back to OpenGL.\n" );
+		ri.Cvar_Set( "r_renderer", "opengl" );
+		QGL_SelectBackend( qfalse );
+	}
+#endif
+
+	QGL_InitGLDispatch();
+
 	if( Cvar_VariableIntegerValue( "com_abnormalExit" ) )
 	{
 		ri.Cvar_Set( "r_mode", va( "%d", R_MODE_FALLBACK ) );
@@ -989,6 +1028,14 @@ Responsible for doing a swapbuffers
 */
 void GLimp_EndFrame( void )
 {
+#ifdef HAVE_VULKAN
+	if ( QGL_UsingVulkan() )
+	{
+		Vkqgl_Present();
+		return;
+	}
+#endif
+
 	// don't flip if drawing to front buffer
 	if ( Q_stricmp( r_drawBuffer->string, "GL_FRONT" ) != 0 )
 	{
@@ -1131,6 +1178,16 @@ GLimp_SpawnRenderThread
 qboolean GLimp_SpawnRenderThread( void (*function)( void ) )
 {
 	static qboolean reported = qfalse;
+
+#ifdef HAVE_VULKAN
+	/* Vulkan command buffers are recorded by the front end; the old GLX
+	   context handoff does not apply. */
+	if ( QGL_UsingVulkan() )
+	{
+		return qfalse;
+	}
+#endif
+
 	if (!reported)
 	{
 		/* r_smp is on by default now, so this is informational only. */
