@@ -43,11 +43,13 @@ R_ToggleSmpFrame
 ====================
 */
 void R_ToggleSmpFrame( void ) {
-	if ( r_smp->integer ) {
+	if ( glConfig.smpActive ) {
 		// use the other buffers next frame, because another CPU
 		// may still be rendering into the current ones
 		tr.smpFrame ^= 1;
 	} else {
+		// r_smp may be requested but unavailable (non-GLX driver, failed
+		// thread spawn); keep the single-buffer layout in that case.
 		tr.smpFrame = 0;
 	}
 

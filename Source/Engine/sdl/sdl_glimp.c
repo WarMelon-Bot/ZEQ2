@@ -1130,11 +1130,12 @@ GLimp_SpawnRenderThread
 */
 qboolean GLimp_SpawnRenderThread( void (*function)( void ) )
 {
-	static qboolean warned = qfalse;
-	if (!warned)
+	static qboolean reported = qfalse;
+	if (!reported)
 	{
-		Com_Printf("WARNING: You enable r_smp at your own risk!\n");
-		warned = qtrue;
+		/* r_smp is on by default now, so this is informational only. */
+		ri.Printf( PRINT_DEVELOPER, "Renderer thread requested (r_smp 1)\n" );
+		reported = qtrue;
 	}
 
 #ifdef MACOS_X
@@ -1142,7 +1143,7 @@ qboolean GLimp_SpawnRenderThread( void (*function)( void ) )
 #else
 #if !defined( SDL_VIDEO_DRIVER_X11 )
 	/* Without GLX (or CGL) we cannot hand the GL context to another thread. */
-	Com_Printf( "SMP rendering requires X11/GLX; disabled.\n" );
+	ri.Printf( PRINT_DEVELOPER, "SMP rendering requires X11/GLX; disabled.\n" );
 	return qfalse;
 #endif
 	if ( opengl_context == NULL || smpDisplay == NULL || smpWindow == 0 )

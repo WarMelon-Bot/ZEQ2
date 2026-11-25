@@ -1162,7 +1162,10 @@ void RB_ExecuteRenderCommands( const void *data ) {
 
 	t1 = ri.Milliseconds ();
 
-	if ( !r_smp->integer || data == backEndData[0]->commands.cmds ) {
+	// Pick the buffer the front end used.  glConfig.smpActive is not checked
+	// here because r_smp can be requested while the thread is unavailable;
+	// the double-buffer layout must still follow tr.smpFrame in that case.
+	if ( data == backEndData[0]->commands.cmds ) {
 		backEnd.smpFrame = 0;
 	} else {
 		backEnd.smpFrame = 1;
