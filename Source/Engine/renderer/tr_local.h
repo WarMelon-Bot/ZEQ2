@@ -27,6 +27,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include "../../Shared/q_shared.h"
 #include "../../Shared/qfiles.h"
 #include "../../Shared/qcommon.h"
+#include "../client/touch.h"
 #include "tr_public.h"
 #include "qgl.h"
 
@@ -1404,12 +1405,15 @@ IMPLEMENTATION SPECIFIC FUNCTIONS
 void		GLimp_Init( void );
 void		GLimp_Shutdown( void );
 void		GLimp_EndFrame( void );
+void		GLimp_CheckFullscreen( void );
 
 qboolean	GLimp_SpawnRenderThread( void (*function)( void ) );
 void		GLimp_ShutdownRenderThread( void );
 void		*GLimp_RendererSleep( void );
 void		GLimp_FrontEndSleep( void );
 void		GLimp_WakeRenderer( void *data );
+qboolean	GLimp_RendererActive( void );
+void		GLimp_SetRendererActive( qboolean active );
 
 void		GLimp_LogComment( char *comment );
 
@@ -1984,6 +1988,13 @@ typedef struct {
 	int		commandId;
 } swapBuffersCommand_t;
 
+/* Snapshot of the touch layout taken on the front end so the render thread
+ * never reads the input structures that the main thread mutates. */
+typedef struct {
+	int				commandId;
+	touchOverlay_t	overlay;
+} touchOverlayCommand_t;
+
 typedef struct {
 	int		commandId;
 	int		buffer;
@@ -2047,7 +2058,8 @@ typedef enum {
 	RC_SCREENSHOT,
 	RC_VIDEOFRAME,
 	RC_COLORMASK,
-	RC_CLEARDEPTH
+	RC_CLEARDEPTH,
+	RC_TOUCH_OVERLAY
 } renderCommand_t;
 
 
@@ -2077,7 +2089,6 @@ extern	backEndData_t	*backEndData[SMP_FRAMES];	// the second one may not be allo
 
 extern	volatile renderCommandList_t	*renderCommandList;
 
-extern	volatile qboolean	renderThreadActive;
 
 
 void *R_GetCommandBuffer( int bytes );

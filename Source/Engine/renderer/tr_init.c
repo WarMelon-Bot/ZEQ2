@@ -1063,6 +1063,11 @@ void R_Init( void ) {
 
 	ri.Printf( PRINT_ALL, "----- R_Init -----\n" );
 
+	/* A failed vid_restart or registration retry can leave the previous
+	 * render thread alive.  Stop it before clearing the globals it reads. */
+	R_ShutdownCommandBuffers();
+	glConfig.smpActive = qfalse;
+
 	/* Select the graphics backend before GLimp_Init() creates a surface.  The
 	   setting is latched, so it only takes effect on a vid_restart. */
 	r_renderer = ri.Cvar_Get( "r_renderer", "opengl", CVAR_ARCHIVE | CVAR_LATCH );
@@ -1192,9 +1197,11 @@ void RE_Shutdown( qboolean destroyWindow ) {
 
 	if ( tr.registered ) {
 		R_SyncRenderThread();
-		R_ShutdownCommandBuffers();
 		R_DeleteTextures();
 	}
+
+	/* Stop a live render thread even if registration never completed. */
+	R_ShutdownCommandBuffers();
 
 	R_DoneFreeType();
 

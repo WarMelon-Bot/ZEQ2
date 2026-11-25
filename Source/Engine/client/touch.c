@@ -904,28 +904,50 @@ void Touch_PointerCancelAll( void )
 
 /*
 =================
-Touch_DrawOverlay
+Touch_OverlayActive
 =================
 */
-void Touch_DrawOverlay( void )
+qboolean Touch_OverlayActive( void )
 {
+	return touchInitialized && touch_enable && touch_enable->integer &&
+		touchLayout.count > 0 && glConfig.vidWidth && glConfig.vidHeight &&
+		( !touch_opacity || touch_opacity->value >= 0.05f );
+}
+
+/*
+=================
+Touch_SnapshotOverlay
+
+Called on the main thread so the render thread never reads mutable touch
+state directly.
+=================
+*/
+void Touch_SnapshotOverlay( touchOverlay_t *overlay )
+{
+	overlay->layout = touchLayout;
+	overlay->alpha = touch_opacity ? touch_opacity->value : 0.55f;
+	if ( !Touch_OverlayActive() ) {
+		overlay->layout.count = 0;
+	}
+}
+
+/*
+=================
+Touch_DrawOverlaySnapshot
+=================
+*/
+void Touch_DrawOverlaySnapshot( const touchOverlay_t *overlay )
+{
+	const touchLayout_t *layout = &overlay->layout;
+	float alpha = overlay->alpha;
 	int i, j;
-	float alpha;
 	float toolX, toolY, toolW, toolH;
 	float textSize;
 
-	if ( !touchInitialized || !touch_enable || !touch_enable->integer ) {
-		return;
-	}
-	if ( touchLayout.count <= 0 ) {
+	if ( layout->count <= 0 ) {
 		return;
 	}
 	if ( !glConfig.vidWidth || !glConfig.vidHeight ) {
-		return;
-	}
-
-	alpha = touch_opacity ? touch_opacity->value : 0.55f;
-	if ( alpha < 0.05f ) {
 		return;
 	}
 
@@ -944,13 +966,13 @@ void Touch_DrawOverlay( void )
 
 	textSize = Touch_MaxFloat( 2.0f, glConfig.vidHeight / 360.0f );
 
-	for ( i = 0; i < touchLayout.count; i++ ) {
-		touchControl_t *c = &touchLayout.controls[i];
+	for ( i = 0; i < layout->count; i++ ) {
+		const touchControl_t *c = &layout->controls[i];
 		float x = c->x * glConfig.vidWidth;
 		float y = c->y * glConfig.vidHeight;
 		float w = c->w * glConfig.vidWidth;
 		float h = c->h * glConfig.vidHeight;
-		float selected = touchLayout.selected == i ? 1.0f : 0.0f;
+		float selected = layout->selected == i ? 1.0f : 0.0f;
 		qboolean active = c->pointer >= 0;
 
 		if ( c->type == TOUCH_BUTTON ) {
@@ -973,13 +995,13 @@ void Touch_DrawOverlay( void )
 				1.0f, active ? 0.9f : 0.6f, 0.2f, alpha + 0.2f );
 		}
 
-		if ( touchLayout.editor ) {
+		if ( layout->editor ) {
 			Touch_DrawText( c->keys[0], x + 4, y + 4, textSize,
 				1.0f, 1.0f, 1.0f, 1.0f );
 		}
 	}
 
-	if ( touchLayout.editor ) {
+	if ( layout->editor ) {
 		for ( i = 0; i < TOUCH_TOOLBAR_COUNT; i++ ) {
 			Touch_ToolbarRect( i, &toolX, &toolY, &toolW, &toolH );
 			toolX *= glConfig.vidWidth;
@@ -995,8 +1017,8 @@ void Touch_DrawOverlay( void )
 		Touch_DrawText( "TOUCH LAYOUT EDITOR", glConfig.vidWidth * 0.31f,
 			glConfig.vidHeight * 0.085f, Touch_MaxFloat( 2.0f, glConfig.vidHeight / 400.0f ),
 			1.0f, 0.9f, 0.3f, 1.0f );
-		Touch_DrawText( touchLayout.bindMode ? "MODE: BIND" :
-			( touchLayout.resizeMode ? "MODE: SIZE" : "MODE: MOVE" ),
+		Touch_DrawText( layout->bindMode ? "MODE: BIND" :
+			( layout->resizeMode ? "MODE: SIZE" : "MODE: MOVE" ),
 			glConfig.vidWidth * 0.39f, glConfig.vidHeight * 0.125f,
 			Touch_MaxFloat( 2.0f, glConfig.vidHeight / 420.0f ),
 			1.0f, 1.0f, 1.0f, 1.0f );
@@ -1014,4 +1036,17 @@ void Touch_DrawOverlay( void )
 	/* Silence an unused-variable warning on builds without the editor font paths. */
 	(void)j;
 	(void)Touch_FontIndex;
+}
+
+/*
+=================
+Touch_DrawOverlay
+=================
+*/
+void Touch_DrawOverlay( void )
+{
+	touchOverlay_t overlay;
+
+	Touch_SnapshotOverlay( &overlay );
+	Touch_DrawOverlaySnapshot( &overlay );
 }

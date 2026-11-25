@@ -45,6 +45,12 @@ typedef struct {
 	qboolean bindMode;
 } touchLayout_t;
 
+/* Immutable copy handed to the renderer command buffer. */
+typedef struct {
+	touchLayout_t layout;
+	float alpha;
+} touchOverlay_t;
+
 void Touch_Init( void );
 void Touch_Shutdown( void );
 void Touch_Frame( void );
@@ -56,6 +62,9 @@ void Touch_PointerUp( int pointer, float x, float y, int time );
 void Touch_PointerCancelAll( void );
 
 void Touch_DrawOverlay( void );
+qboolean Touch_OverlayActive( void );
+void Touch_SnapshotOverlay( touchOverlay_t *overlay );
+void Touch_DrawOverlaySnapshot( const touchOverlay_t *overlay );
 touchLayout_t *Touch_GetLayout( void );
 
 #endif /* TOUCH_H */

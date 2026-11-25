@@ -151,7 +151,8 @@ void QDECL Com_Printf( const char *fmt, ... ) {
 	va_end (argptr);
 
 	if ( rd_buffer ) {
-		if ((strlen (msg) + strlen(rd_buffer)) > (rd_buffersize - 1)) {
+		if ( rd_buffersize > 0 &&
+			( strlen( msg ) + strlen( rd_buffer ) ) > (size_t)( rd_buffersize - 1 ) ) {
 			rd_flush(rd_buffer);
 			*rd_buffer = 0;
 		}
@@ -836,6 +837,10 @@ Z_ClearZone
 void Z_ClearZone( memzone_t *zone, int size ) {
 	memblock_t	*block;
 
+	if ( size <= (int)PAD( sizeof(memzone_t), ZONE_ALIGN ) ) {
+		Com_Error( ERR_FATAL, "Z_ClearZone: zone size %i is smaller than its header", size );
+	}
+
 	Com_Memset( zone, 0, sizeof( *zone ) );
 
 	// set the entire zone to one free block
@@ -980,8 +985,11 @@ void *Z_TagMalloc( int size, int tag ) {
 	memzone_t *zone;
 	int bucket;
 
-	if (!tag) {
-		Com_Error( ERR_FATAL, "Z_TagMalloc: tried to use a 0 tag" );
+	if ( tag <= TAG_FREE || tag >= TAG_STATIC ) {
+		// TAG_STATIC blocks live outside the arena (see the memstatic_t
+		// array below) and Z_Free deliberately ignores them.  Allocating a
+		// dynamic block with that tag would leak and make Z_FreeTags loop.
+		Com_Error( ERR_FATAL, "Z_TagMalloc: invalid tag %i", tag );
 	}
 	if ( size < 0 ) {
 		Com_Error( ERR_FATAL, "Z_TagMalloc: negative allocation of %i bytes", size );
@@ -1245,6 +1253,9 @@ char *CopyString( const char *in ) {
 		}
 	}
 	len = strlen( in ) + 1;
+	if ( len > INT_MAX ) {
+		Com_Error( ERR_DROP, "CopyString: string longer than %i bytes", INT_MAX );
+	}
 	out = S_Malloc( (int)len );
 	Com_Memcpy( out, in, len );
 	return out;
@@ -1346,10 +1357,10 @@ Com_Meminfo_f
 */
 void Com_Meminfo_f( void ) {
 	memblock_t	*block;
-	int			zoneBytes, zoneBlocks;
-	int			smallZoneBytes, smallZoneBlocks;
-	int			botlibBytes, rendererBytes;
-	int			unused;
+	size_t		zoneBytes, zoneBlocks;
+	size_t		smallZoneBytes, smallZoneBlocks;
+	size_t		botlibBytes, rendererBytes;
+	size_t		unused;
 
 	zoneBytes = 0;
 	botlibBytes = 0;
@@ -1357,8 +1368,8 @@ void Com_Meminfo_f( void ) {
 	zoneBlocks = 0;
 	for (block = mainzone->blocklist.next ; ; block = block->next) {
 		if ( Cmd_Argc() != 1 ) {
-			Com_Printf ("block:%p    size:%7i    tag:%3i\n",
-				(void *)block, (int)block->size, block->tag);
+			Com_Printf ("block:%p    size:%7llu    tag:%3i\n",
+				(void *)block, (unsigned long long)block->size, block->tag);
 		}
 		if ( block->tag ) {
 			zoneBytes += block->size;
@@ -1397,38 +1408,42 @@ void Com_Meminfo_f( void ) {
 		}
 	}
 
-	Com_Printf( "%8i bytes total hunk\n", (int)s_hunkTotal );
-	Com_Printf( "%8i bytes total zone\n", s_zoneTotal );
+	Com_Printf( "%8llu bytes total hunk\n", (unsigned long long)s_hunkTotal );
+	Com_Printf( "%8llu bytes total zone\n", (unsigned long long)s_zoneTotal );
 	Com_Printf( "\n" );
-	Com_Printf( "%8i low mark\n", (int)hunk_low.mark );
-	Com_Printf( "%8i low permanent\n", (int)hunk_low.permanent );
+	Com_Printf( "%8llu low mark\n", (unsigned long long)hunk_low.mark );
+	Com_Printf( "%8llu low permanent\n", (unsigned long long)hunk_low.permanent );
 	if ( hunk_low.temp != hunk_low.permanent ) {
-		Com_Printf( "%8i low temp\n", (int)hunk_low.temp );
+		Com_Printf( "%8llu low temp\n", (unsigned long long)hunk_low.temp );
 	}
-	Com_Printf( "%8i low tempHighwater\n", (int)hunk_low.tempHighwater );
+	Com_Printf( "%8llu low tempHighwater\n", (unsigned long long)hunk_low.tempHighwater );
 	Com_Printf( "\n" );
-	Com_Printf( "%8i high mark\n", (int)hunk_high.mark );
-	Com_Printf( "%8i high permanent\n", (int)hunk_high.permanent );
+	Com_Printf( "%8llu high mark\n", (unsigned long long)hunk_high.mark );
+	Com_Printf( "%8llu high permanent\n", (unsigned long long)hunk_high.permanent );
 	if ( hunk_high.temp != hunk_high.permanent ) {
-		Com_Printf( "%8i high temp\n", (int)hunk_high.temp );
+		Com_Printf( "%8llu high temp\n", (unsigned long long)hunk_high.temp );
 	}
-	Com_Printf( "%8i high tempHighwater\n", (int)hunk_high.tempHighwater );
+	Com_Printf( "%8llu high tempHighwater\n", (unsigned long long)hunk_high.tempHighwater );
 	Com_Printf( "\n" );
-	Com_Printf( "%8i total hunk in use\n", (int)(hunk_low.permanent + hunk_high.permanent) );
+	Com_Printf( "%8llu total hunk in use\n",
+		(unsigned long long)(hunk_low.permanent + hunk_high.permanent) );
 	unused = 0;
 	if ( hunk_low.tempHighwater > hunk_low.permanent ) {
-		unused += (int)(hunk_low.tempHighwater - hunk_low.permanent);
+		unused += hunk_low.tempHighwater - hunk_low.permanent;
 	}
 	if ( hunk_high.tempHighwater > hunk_high.permanent ) {
-		unused += (int)(hunk_high.tempHighwater - hunk_high.permanent);
+		unused += hunk_high.tempHighwater - hunk_high.permanent;
 	}
-	Com_Printf( "%8i unused highwater\n", unused );
+	Com_Printf( "%8llu unused highwater\n", (unsigned long long)unused );
 	Com_Printf( "\n" );
-	Com_Printf( "%8i bytes in %i zone blocks\n", zoneBytes, zoneBlocks	);
-	Com_Printf( "        %8i bytes in dynamic botlib\n", botlibBytes );
-	Com_Printf( "        %8i bytes in dynamic renderer\n", rendererBytes );
-	Com_Printf( "        %8i bytes in dynamic other\n", zoneBytes - ( botlibBytes + rendererBytes ) );
-	Com_Printf( "        %8i bytes in %i small Zone blocks\n", smallZoneBytes, smallZoneBlocks );
+	Com_Printf( "%8llu bytes in %llu zone blocks\n",
+		(unsigned long long)zoneBytes, (unsigned long long)zoneBlocks );
+	Com_Printf( "        %8llu bytes in dynamic botlib\n", (unsigned long long)botlibBytes );
+	Com_Printf( "        %8llu bytes in dynamic renderer\n", (unsigned long long)rendererBytes );
+	Com_Printf( "        %8llu bytes in dynamic other\n",
+		(unsigned long long)(zoneBytes - ( botlibBytes + rendererBytes )) );
+	Com_Printf( "        %8llu bytes in %llu small Zone blocks\n",
+		(unsigned long long)smallZoneBytes, (unsigned long long)smallZoneBlocks );
 }
 
 /*
@@ -1443,6 +1458,10 @@ void Com_TouchMemory( void ) {
 	size_t	i, j;
 	volatile int sum;
 	memblock_t	*block;
+
+	if ( s_hunkData == NULL ) {
+		Com_Error( ERR_FATAL, "Com_TouchMemory: Hunk memory system not initialized" );
+	}
 
 	Z_CheckHeap();
 
@@ -1557,13 +1576,14 @@ void Hunk_Log( void) {
 	FS_Write(buf, strlen(buf), logfile);
 	for (block = hunkblocks ; block; block = block->next) {
 #ifdef HUNK_DEBUG
-		Com_sprintf(buf, sizeof(buf), "size = %8i: %s, line: %d (%s)\r\n", (int)block->size, block->file, block->line, block->label);
+		Com_sprintf(buf, sizeof(buf), "size = %8llu: %s, line: %d (%s)\r\n",
+			(unsigned long long)block->size, block->file, block->line, block->label);
 		FS_Write(buf, strlen(buf), logfile);
 #endif
 		size += block->size;
 		numBlocks++;
 	}
-	Com_sprintf(buf, sizeof(buf), "%i Hunk memory\r\n", (int)size);
+	Com_sprintf(buf, sizeof(buf), "%llu Hunk memory\r\n", (unsigned long long)size);
 	FS_Write(buf, strlen(buf), logfile);
 	Com_sprintf(buf, sizeof(buf), "%d hunk blocks\r\n", numBlocks);
 	FS_Write(buf, strlen(buf), logfile);
@@ -1610,7 +1630,7 @@ void Hunk_SmallLog( void) {
 		if ( !entry ) {
 			newEntry = malloc( sizeof( *newEntry ) );
 			if ( !newEntry ) {
-				return;
+				goto freeBuckets;
 			}
 			newEntry->next = buckets[bucket];
 			newEntry->file = block->file;
@@ -1630,18 +1650,19 @@ void Hunk_SmallLog( void) {
 	for ( i = 0; i < 256; i++ ) {
 		for ( entry = buckets[i]; entry; entry = entry->next ) {
 #ifdef HUNK_DEBUG
-			Com_sprintf(buf, sizeof(buf), "size = %8i: %s, line: %d (%s)\r\n",
-				(int)entry->size, entry->file, entry->line, entry->label );
+			Com_sprintf(buf, sizeof(buf), "size = %8llu: %s, line: %d (%s)\r\n",
+				(unsigned long long)entry->size, entry->file, entry->line, entry->label );
 			FS_Write(buf, strlen(buf), logfile);
 #endif
 			size += entry->size;
 		}
 	}
-	Com_sprintf(buf, sizeof(buf), "%i Hunk memory\r\n", (int)size);
+	Com_sprintf(buf, sizeof(buf), "%llu Hunk memory\r\n", (unsigned long long)size);
 	FS_Write(buf, strlen(buf), logfile);
 	Com_sprintf(buf, sizeof(buf), "%d hunk blocks\r\n", numBlocks);
 	FS_Write(buf, strlen(buf), logfile);
 
+freeBuckets:
 	for ( i = 0; i < 256; i++ ) {
 		entry = buckets[i];
 		while ( entry ) {
@@ -1660,6 +1681,7 @@ Com_InitZoneMemory
 void Com_InitHunkMemory( void ) {
 	cvar_t	*cv;
 	int nMinAlloc, megs;
+	size_t maxMegs;
 	char *pMsg = NULL;
 
 	// make sure the file system has allocated and "not" freed any temp blocks
@@ -1683,10 +1705,17 @@ void Com_InitHunkMemory( void ) {
 		pMsg = "Minimum com_hunkMegs is %i, allocating %i megs.\n";
 	}
 
+	// Leave room for the alignment padding when computing the largest arena
+	// representable in size_t.  On 32-bit targets MAX_COMHUNKMEGS would wrap
+	// to zero without this check.
+	maxMegs = ( SIZE_MAX - ( HUNK_ALIGN - 1 ) ) / ( 1024u * 1024u );
+	if ( maxMegs > MAX_COMHUNKMEGS ) {
+		maxMegs = MAX_COMHUNKMEGS;
+	}
 	megs = cv->integer < nMinAlloc ? nMinAlloc : cv->integer;
-	if ( megs > MAX_COMHUNKMEGS ) {
-		Com_Printf( "com_hunkMegs clamped to %i megs.\n", MAX_COMHUNKMEGS );
-		megs = MAX_COMHUNKMEGS;
+	if ( (size_t)megs > maxMegs ) {
+		Com_Printf( "com_hunkMegs clamped to %i megs.\n", (int)maxMegs );
+		megs = (int)maxMegs;
 	}
 	s_hunkTotal = (size_t)megs * 1024 * 1024;
 	if ( megs == nMinAlloc || cv->integer < nMinAlloc ) {
@@ -2440,7 +2469,7 @@ int Com_EventLoop( void ) {
 			// the event buffers are only large enough to hold the
 			// exact payload, but channel messages need to be large
 			// enough to hold fragment reassembly
-			if ( (unsigned)buf.cursize > buf.maxsize ) {
+			if ( buf.cursize < 0 || buf.cursize > buf.maxsize ) {
 				Com_Printf("Com_EventLoop: oversize packet\n");
 				continue;
 			}
@@ -3240,7 +3269,7 @@ FindMatches
 ===============
 */
 static void FindMatches( const char *s ) {
-	int		i;
+	size_t	i;
 
 	if ( Q_stricmpn( s, completionString, strlen( completionString ) ) ) {
 		return;
@@ -3298,7 +3327,7 @@ Field_FindFirstSeparator
 */
 static char *Field_FindFirstSeparator( char *s )
 {
-	int i;
+	size_t i;
 
 	for( i = 0; i < strlen( s ); i++ )
 	{

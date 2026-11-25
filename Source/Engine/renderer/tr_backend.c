@@ -1133,9 +1133,6 @@ const void	*RB_SwapBuffers( const void *data ) {
 
 	GLimp_LogComment( "***************** RB_SwapBuffers *****************\n\n\n" );
 
-	/* Draw the virtual touch overlay on top of the 2D UI. */
-	Touch_DrawOverlay();
-
 	GLimp_EndFrame();
 
 	backEnd.projection2D = qfalse;
@@ -1143,6 +1140,20 @@ const void	*RB_SwapBuffers( const void *data ) {
 	backEnd.doneSurfaces = qfalse;
 
 	return (const void *)(cmd + 1);
+}
+
+/*
+====================
+RB_TouchOverlay
+
+Draw the front-end snapshot of the virtual touch overlay.
+====================
+*/
+static const void *RB_TouchOverlay( const void *data ) {
+	const touchOverlayCommand_t *cmd = data;
+
+	Touch_DrawOverlaySnapshot( &cmd->overlay );
+	return (const void *)( cmd + 1 );
 }
 
 /*
@@ -1200,6 +1211,9 @@ void RB_ExecuteRenderCommands( const void *data ) {
 		case RC_CLEARDEPTH:
 			data = RB_ClearDepth(data);
 			break;
+		case RC_TOUCH_OVERLAY:
+			data = RB_TouchOverlay(data);
+			break;
 		case RC_END_OF_LIST:
 		default:
 			// stop rendering on this thread
@@ -1229,11 +1243,11 @@ void RB_RenderThread( void ) {
 			return;	// all done, renderer is shutting down
 		}
 
-		renderThreadActive = qtrue;
+		GLimp_SetRendererActive( qtrue );
 
 		RB_ExecuteRenderCommands( data );
 
-		renderThreadActive = qfalse;
+		GLimp_SetRendererActive( qfalse );
 	}
 }
 

@@ -7,6 +7,7 @@
 #   ./build.sh release         build only the optimized release target (fastest)
 #   ./build.sh test            run allocator unit tests and smoke tests
 #   ./build.sh memory-test     build and run just the allocator unit tests
+#   ./build.sh memory-test-asan  build and run the allocator tests with ASan/UBSan
 #   ./build.sh warnings        clean rebuild that fails on any compiler warning
 #   ./build.sh run [args...]   run the graphical client
 #   ./build.sh smp [args...]   run the multi-threaded renderer client
@@ -363,6 +364,32 @@ memory_test() {
     "$binary"
 }
 
+memory_test_sanitized() {
+    local cc="${CC:-cc}" binary="$TEST_DIR/memory-tests-asan"
+    local probe="$TEST_DIR/sanitizer-probe"
+
+    log "Building and running zone/hunk allocator unit tests with ASan/UBSan..."
+    mkdir -p "$TEST_DIR"
+    if ! printf 'int main(void) { return 0; }\n' | \
+        "$cc" -x c - -o "$probe" -fsanitize=address,undefined >/dev/null 2>&1; then
+        warn "Compiler does not support ASan/UBSan; skipping sanitized allocator tests."
+        return 0
+    fi
+    rm -f "$probe"
+
+    "$cc" -std=gnu17 -g -O1 -Wall -fsanitize=address,undefined -fno-omit-frame-pointer \
+        -DDEDICATED -DNDEBUG -DNO_VM_COMPILED \
+        -DPRODUCT_VERSION='"ZEQ2-Lite memory tests (ASan/UBSan)"' \
+        -I "$SOURCE_DIR/Shared" -I "$SOURCE_DIR/Engine/client" \
+        -o "$binary" \
+        "$SOURCE_DIR/Tests/test_memory.c" \
+        "$SOURCE_DIR/Tests/engine_stubs.c" \
+        "$SOURCE_DIR/Shared/common.c" -lm
+    ASAN_OPTIONS=detect_leaks=1 \
+        UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
+        "$binary"
+}
+
 smoke_test() {
     prepare_runtime "$RELEASE_DIR"
     local binary logfile
@@ -508,6 +535,8 @@ Commands:
   release   Build only the optimized release target
   test      Run allocator tests, then smoke-test server, OpenGL and Vulkan clients
   memory-test  Build and run the zone/hunk allocator unit tests
+  memory-test-asan  Build and run the allocator unit tests with ASan/UBSan
+  vulkan_smoke_test  Smoke-test the Vulkan client under Xvfb (lavapipe)
   warnings  Fresh release+debug rebuild; fail if any compiler warning appears
   win64     Cross-build Windows x64 server and game modules (needs mingw-w64)
   android   Cross-build ARM Android clients and package a signed APK
@@ -545,7 +574,8 @@ while (($#)); do
             ;;
         *)
             if [[ "$1" == all || "$1" == deps || "$1" == build || "$1" == release || \
-                  "$1" == test || "$1" == memory-test || "$1" == warnings || \
+                  "$1" == test || "$1" == memory-test || "$1" == memory-test-asan || \
+                  "$1" == vulkan_smoke_test || "$1" == warnings || \
                   "$1" == win64 || "$1" == android || \
                   "$1" == run || "$1" == smp || "$1" == server || "$1" == clean ]]; then
                 command_name="$1"
@@ -562,6 +592,7 @@ case "$command_name" in
         ensure_deps
         build_all
         memory_test
+        memory_test_sanitized
         smoke_test
         client_smoke_test
         vulkan_smoke_test
@@ -577,12 +608,19 @@ case "$command_name" in
         ;;
     test)
         memory_test
+        memory_test_sanitized
         smoke_test
         client_smoke_test
         vulkan_smoke_test
         ;;
     memory-test)
         memory_test
+        ;;
+    memory-test-asan)
+        memory_test_sanitized
+        ;;
+    vulkan_smoke_test)
+        vulkan_smoke_test
         ;;
     warnings)
         warnings_check
