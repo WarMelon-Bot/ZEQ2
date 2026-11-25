@@ -5,7 +5,8 @@
 #   ./build.sh                 build everything and smoke-test server + client
 #   ./build.sh build           build release + debug targets
 #   ./build.sh release         build only the optimized release target (fastest)
-#   ./build.sh test            run dedicated-server and client smoke tests
+#   ./build.sh test            run allocator unit tests and smoke tests
+#   ./build.sh memory-test     build and run just the allocator unit tests
 #   ./build.sh run [args...]   run the graphical client
 #   ./build.sh smp [args...]   run the multi-threaded renderer client
 #   ./build.sh server [args..] run the dedicated server
@@ -43,6 +44,7 @@ ARCH="$(uname -m | sed -e 's/i.86/i386/')"
 PLATFORM="$(uname | tr '[:upper:]' '[:lower:]' | sed -e 's/_.*//')"
 RELEASE_DIR="$SOURCE_DIR/Build/Release-${PLATFORM}-${ARCH}"
 DEBUG_DIR="$SOURCE_DIR/Build/Debug-${PLATFORM}-${ARCH}"
+TEST_DIR="$SOURCE_DIR/Build/Tests"
 
 APT_PACKAGES="build-essential ccache pkg-config libsdl1.2-dev libgl1-mesa-dev libcurl4-openssl-dev libopenal-dev libvorbis-dev"
 
@@ -315,6 +317,24 @@ run_binary() {
     exec "./$(basename "$binary")" "$@"
 }
 
+memory_test() {
+    local cc="${CC:-cc}"
+    local binary="$TEST_DIR/memory-tests"
+
+    log "Building and running zone/hunk allocator unit tests..."
+    mkdir -p "$TEST_DIR"
+    # Link the real allocator from common.c against small engine stubs so the
+    # tests cover the same code paths that ship in the client and server.
+    "$cc" -std=gnu17 -Wall -DDEDICATED -DNDEBUG -DNO_VM_COMPILED \
+        -DPRODUCT_VERSION='"ZEQ2-Lite memory tests"' \
+        -I "$SOURCE_DIR/Shared" -I "$SOURCE_DIR/Engine/client" \
+        -o "$binary" \
+        "$SOURCE_DIR/Tests/test_memory.c" \
+        "$SOURCE_DIR/Tests/engine_stubs.c" \
+        "$SOURCE_DIR/Shared/common.c" -lm
+    "$binary"
+}
+
 smoke_test() {
     prepare_runtime "$RELEASE_DIR"
     local binary logfile
@@ -410,7 +430,8 @@ Commands:
   deps      Check/install build dependencies via apt
   build     Build release and debug targets
   release   Build only the optimized release target
-  test      Smoke-test the dedicated server and the threaded client
+  test      Run allocator unit tests, then smoke-test server and client
+  memory-test  Build and run the zone/hunk allocator unit tests
   win64     Cross-build Windows x64 server and game modules (needs mingw-w64)
   android   Cross-build ARM Android clients and package a signed APK
   run       Run the graphical client (extra arguments are passed through)
@@ -447,8 +468,8 @@ while (($#)); do
             ;;
         *)
             if [[ "$1" == all || "$1" == deps || "$1" == build || "$1" == release || \
-                  "$1" == test || "$1" == win64 || "$1" == android || "$1" == run || "$1" == smp || \
-                  "$1" == server || "$1" == clean ]]; then
+                  "$1" == test || "$1" == memory-test || "$1" == win64 || "$1" == android || \
+                  "$1" == run || "$1" == smp || "$1" == server || "$1" == clean ]]; then
                 command_name="$1"
             else
                 args+=("$1")
@@ -462,6 +483,7 @@ case "$command_name" in
     all)
         ensure_deps
         build_all
+        memory_test
         smoke_test
         client_smoke_test
         ;;
@@ -475,8 +497,12 @@ case "$command_name" in
         build_release
         ;;
     test)
+        memory_test
         smoke_test
         client_smoke_test
+        ;;
+    memory-test)
+        memory_test
         ;;
     win64)
         build_win64
