@@ -28,8 +28,14 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          package-manager-cache: false
+
       - name: Install OpenCode
-        run: curl -fsSL https://opencode.ai | bash
+        run: npm install -g @opencode/cli
 
       - name: Configure Git Identity
         run: |
@@ -39,7 +45,6 @@ jobs:
       - name: Run OpenCode Agent
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PATH: /home/runner/.opencode/bin:${{ env.PATH }}
         run: |
           opencode models
           opencode run -m opencode/big-pickle "Read the repository files and follow these instructions.
