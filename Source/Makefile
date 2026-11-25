@@ -26,9 +26,6 @@ endif
 ifndef BUILD_CLIENT
   BUILD_CLIENT     =
 endif
-ifndef BUILD_CLIENT_SMP
-  BUILD_CLIENT_SMP =
-endif
 ifndef BUILD_SERVER
   BUILD_SERVER     =
 endif
@@ -39,8 +36,19 @@ ifndef BUILD_GAME_QVM
   BUILD_GAME_QVM   =
 endif
 
-ifneq ($(PLATFORM),darwin)
-  BUILD_CLIENT_SMP = 0
+# Build a second, opt-in client with the SDL/GLX render thread on platforms
+# where the GL context can be moved between threads.  Other platforms keep
+# the single-threaded client only.
+ifndef BUILD_CLIENT_SMP
+  ifeq ($(PLATFORM),darwin)
+    BUILD_CLIENT_SMP = 1
+  else
+  ifeq ($(PLATFORM),linux)
+    BUILD_CLIENT_SMP = 1
+  else
+    BUILD_CLIENT_SMP = 0
+  endif
+  endif
 endif
 
 #############################################################################

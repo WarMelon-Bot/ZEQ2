@@ -44,16 +44,56 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include "../sys/sys_local.h"
 #include "sdl_icon.h"
 
-/* Just hack it for now. */
+/*
+ * The SDL 1.2 API has no portable "make this GL context current" call, which
+ * is why the old SMP renderer was restricted to Mac OS X.  On X11 we can use
+ * GLX directly: remember the drawable when the context is created, then move
+ * the context between the front end and the render thread around each frame.
+ * Platforms without such an API keep the harmless no-op stubs.
+ */
 #ifdef MACOS_X
 #include <OpenGL/OpenGL.h>
 typedef CGLContextObj QGLContext;
-#define GLimp_GetCurrentContext() CGLGetCurrentContext()
-#define GLimp_SetCurrentContext(ctx) CGLSetCurrentContext(ctx)
+static QGLContext GLimp_GetCurrentContext( void ) {
+	return CGLGetCurrentContext();
+}
+static void GLimp_SetCurrentContext( QGLContext ctx ) {
+	CGLSetCurrentContext( ctx );
+}
+#elif defined( SMP ) && defined( SDL_VIDEO_DRIVER_X11 )
+#include "SDL_syswm.h"
+#include <GL/glx.h>
+typedef GLXContext QGLContext;
+static Display *smpDisplay = NULL;
+static Window smpWindow = 0;
+
+static QGLContext GLimp_GetCurrentContext( void ) {
+	SDL_SysWMinfo info;
+
+	SDL_VERSION( &info.version );
+	if ( SDL_GetWMInfo( &info ) && info.subsystem == SDL_SYSWM_X11 ) {
+		smpDisplay = info.info.x11.display;
+		smpWindow = info.info.x11.window;
+		return glXGetCurrentContext();
+	}
+
+	smpDisplay = NULL;
+	smpWindow = 0;
+	return NULL;
+}
+
+static void GLimp_SetCurrentContext( QGLContext ctx ) {
+	if ( smpDisplay == NULL || smpWindow == 0 ) {
+		return;
+	}
+	glXMakeCurrent( smpDisplay, ctx ? smpWindow : None, ctx );
+}
 #else
 typedef void *QGLContext;
-#define GLimp_GetCurrentContext() (NULL)
-#define GLimp_SetCurrentContext(ctx)
+static QGLContext GLimp_GetCurrentContext( void ) {
+	return NULL;
+}
+#define GLimp_SetCurrentContext(ctx) ((void)(ctx))
 #endif
 
 static QGLContext opengl_context;
@@ -1017,14 +1057,26 @@ static SDL_cond *renderCommandsEvent = NULL;
 static SDL_cond *renderCompletedEvent = NULL;
 static void (*glimpRenderThread)( void ) = NULL;
 static SDL_Thread *renderThread = NULL;
+static volatile void *smpData = NULL;
+static volatile qboolean smpDataReady = qfalse;
 
 /*
 ===============
 GLimp_ShutdownRenderThread
+
+Wait for the render thread to terminate before destroying the synchronization
+objects it may still be waiting on.  Callers must wake the thread with a NULL
+command list first if it is idle.
 ===============
 */
-static void GLimp_ShutdownRenderThread(void)
+void GLimp_ShutdownRenderThread(void)
 {
+	if (renderThread != NULL)
+	{
+		SDL_WaitThread(renderThread, NULL);
+		renderThread = NULL;
+	}
+
 	if (smpMutex != NULL)
 	{
 		SDL_DestroyMutex(smpMutex);
@@ -1044,6 +1096,11 @@ static void GLimp_ShutdownRenderThread(void)
 	}
 
 	glimpRenderThread = NULL;
+	smpData = NULL;
+	smpDataReady = qfalse;
+
+	/* The main thread owns the GL context again for texture teardown. */
+	GLimp_SetCurrentContext(opengl_context);
 }
 
 /*
@@ -1055,7 +1112,9 @@ static int GLimp_RenderThreadWrapper( void *arg )
 {
 	Com_Printf( "Render thread starting\n" );
 
-	glimpRenderThread();
+	if ( glimpRenderThread != NULL ) {
+		glimpRenderThread();
+	}
 
 	GLimp_SetCurrentContext(NULL);
 
@@ -1078,15 +1137,27 @@ qboolean GLimp_SpawnRenderThread( void (*function)( void ) )
 		warned = qtrue;
 	}
 
-#ifndef MACOS_X
-	return qfalse;  /* better safe than sorry for now. */
+#ifdef MACOS_X
+	return qfalse;  /* CGL context migration is not enabled in this build. */
+#else
+#if !defined( SDL_VIDEO_DRIVER_X11 )
+	/* Without GLX (or CGL) we cannot hand the GL context to another thread. */
+	Com_Printf( "SMP rendering requires X11/GLX; disabled.\n" );
+	return qfalse;
+#endif
+	if ( opengl_context == NULL || smpDisplay == NULL || smpWindow == 0 )
+	{
+		/* Non-X11 SDL drivers (dummy, fbcon, ...) cannot run the back end
+		 * on a second thread; fall back to the safe single-core renderer. */
+		Com_Printf( "No shareable GLX context; disabling SMP rendering.\n" );
+		return qfalse;
+	}
 #endif
 
 	if (renderThread != NULL)  /* hopefully just a zombie at this point... */
 	{
 		Com_Printf("Already a render thread? Trying to clean it up...\n");
-		SDL_WaitThread(renderThread, NULL);
-		renderThread = NULL;
+		GLimp_WakeRenderer(NULL);
 		GLimp_ShutdownRenderThread();
 	}
 
@@ -1124,20 +1195,14 @@ qboolean GLimp_SpawnRenderThread( void (*function)( void ) )
 	}
 	else
 	{
-		// tma 01/09/07: don't think this is necessary anyway?
-		//
-		// !!! FIXME: No detach API available in SDL!
-		//ret = pthread_detach( renderThread );
-		//if ( ret ) {
-		//ri.Printf( PRINT_ALL, "pthread_detach returned %d: %s", ret, strerror( ret ) );
-		//}
+		/* The context belongs to the render thread from now on.  Releasing it
+		 * here also guarantees GLimp_RendererSleep() starts out with no
+		 * current context in the new thread. */
+		GLimp_SetCurrentContext(NULL);
 	}
 
 	return qtrue;
 }
-
-static volatile void    *smpData = NULL;
-static volatile qboolean smpDataReady;
 
 /*
 ===============
@@ -1219,6 +1284,10 @@ qboolean GLimp_SpawnRenderThread( void (*function)( void ) )
 {
 	ri.Printf( PRINT_WARNING, "ERROR: SMP support was disabled at compile time\n");
 	return qfalse;
+}
+
+void GLimp_ShutdownRenderThread( void )
+{
 }
 
 void *GLimp_RendererSleep( void )
