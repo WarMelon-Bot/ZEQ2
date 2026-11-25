@@ -22,6 +22,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 // cl_main.c  -- client main loop
 
 #include "client.h"
+#include "touch.h"
 #include <limits.h>
 
 #ifdef USE_MUMBLE
@@ -2519,6 +2520,8 @@ void CL_Frame ( int msec ) {
 		return;
 	}
 
+	Touch_Frame();
+
 #ifdef USE_CURL
 	if(clc.downloadCURLM) {
 		CL_cURL_PerformDownload();
@@ -2944,6 +2947,9 @@ void CL_Init( void ) {
 
 	CL_InitInput ();
 
+	/* Virtual touch controls share the normal engine event queue. */
+	Touch_Init();
+
 	//
 	// register our variables
 	//
@@ -3154,6 +3160,8 @@ void CL_Shutdown( char *finalmsg ) {
 	recursive = qtrue;
 
 	CL_Disconnect( qtrue );
+
+	Touch_Shutdown();
 
 	S_Shutdown();
 	CL_ShutdownRef();

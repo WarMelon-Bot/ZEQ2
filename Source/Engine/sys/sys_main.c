@@ -31,7 +31,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include <ctype.h>
 #include <errno.h>
 
-#ifndef DEDICATED
+#if !defined(DEDICATED) && !defined(ANDROID)
 #ifdef USE_LOCAL_HEADERS
 #	include "SDL.h"
 #	include "SDL_cpuinfo.h"
@@ -39,6 +39,11 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #	include <SDL.h>
 #	include <SDL_cpuinfo.h>
 #endif
+#endif
+
+#ifdef ANDROID
+#	include <android/log.h>
+#	define SYS_LOG_TAG "ZEQ2"
 #endif
 
 #include "sys_local.h"
@@ -192,7 +197,7 @@ static void Sys_Exit( int exitCode )
 {
 	CON_Shutdown( );
 
-#ifndef DEDICATED
+#if !defined(DEDICATED) && !defined(ANDROID)
 	SDL_Quit( );
 #endif
 
@@ -224,7 +229,7 @@ cpuFeatures_t Sys_GetProcessorFeatures( void )
 {
 	cpuFeatures_t features = 0;
 
-#ifndef DEDICATED
+#if !defined(DEDICATED) && !defined(ANDROID)
 	if( SDL_HasRDTSC( ) )    features |= CF_RDTSC;
 	if( SDL_HasMMX( ) )      features |= CF_MMX;
 	if( SDL_HasMMXExt( ) )   features |= CF_MMX_EXT;
@@ -552,15 +557,23 @@ void Sys_SigHandler( int signal )
 
 /*
 =================
-main
+Sys_EngineMain
+
+On desktop this is the process entry point.  The Android native activity
+calls the same function from its own thread after the app environment is set
+up, so both platforms share exactly the same engine startup path.
 =================
 */
+#ifdef ANDROID
+int Sys_EngineMain( int argc, char **argv )
+#else
 int main( int argc, char **argv )
+#endif
 {
 	int   i;
 	char  commandLine[ MAX_STRING_CHARS ] = { 0 };
 
-#ifndef DEDICATED
+#if !defined(DEDICATED) && !defined(ANDROID)
 	// SDL version check
 
 	// Compile time

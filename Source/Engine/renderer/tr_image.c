@@ -185,12 +185,16 @@ void R_ImageList_f( void ) {
 		case GL_COMPRESSED_RGBA_S3TC_DXT1_EXT:
 			ri.Printf( PRINT_ALL, "S3TC " );
 			break;
+#ifndef ANDROID
+		/* GLES 1 has no sized internal formats, so the compatibility header
+		 * aliases these to GL_RGBA/GL_RGB and they collide above. */
 		case GL_RGBA4:
 			ri.Printf( PRINT_ALL, "RGBA4" );
 			break;
 		case GL_RGB5:
 			ri.Printf( PRINT_ALL, "RGB5 " );
 			break;
+#endif
 		default:
 			ri.Printf( PRINT_ALL, "???? " );
 		}

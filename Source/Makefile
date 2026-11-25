@@ -185,6 +185,9 @@ LOKISETUPDIR=Tools/Installer/setup
 NSISDIR=Tools/Installer/nsis
 SDLHDIR=Engine/SDL12
 LIBSDIR=Engine/libs
+ANDROID_DIR ?= ../android
+ANDROID_JNI = $(ANDROID_DIR)/jni
+ANDROID_NDK ?= /usr/local/lib/android/sdk/ndk/27.3.13750724
 TEMPDIR=/tmp
 
 bin_path=$(shell which $(1) 2> /dev/null)
@@ -877,6 +880,39 @@ endif #NetBSD
 endif #IRIX
 endif #SunOS
 
+#############################################################################
+# ANDROID (NativeActivity + GLES 1, no SDL and no Java source)
+# This must come after the generic platform fallback so it overrides it.
+#############################################################################
+
+ifeq ($(PLATFORM),android)
+
+  # Use the bundled SDL_opengl.h compatibility header for GLES 1.  Mumble's
+  # POSIX shared-memory API and VoIP's desktop audio plumbing are not needed.
+  USE_LOCAL_HEADERS = 1
+  USE_MUMBLE = 0
+  USE_VOIP = 0
+
+  BASE_CFLAGS = -Wall -fno-strict-aliasing -Wimplicit -Wstrict-prototypes \
+    -pipe -fPIC -DANDROID -DNO_VM_COMPILED \
+    -I$(ANDROID_JNI) -I$(ANDROID_NDK)/sources/android/native_app_glue
+  CLIENT_CFLAGS =
+  SERVER_CFLAGS =
+  CLIENT_LDFLAGS = -shared
+
+  OPTIMIZEVM = -O2 -fomit-frame-pointer
+  OPTIMIZE = $(OPTIMIZEVM) -ffast-math
+
+  SHLIBEXT=so
+  SHLIBCFLAGS=-fPIC
+  SHLIBLDFLAGS=-shared $(LDFLAGS)
+
+  THREAD_LIBS=
+  LIBS=-lm -ldl
+  CLIENT_LIBS=-lGLESv1_CM -lEGL -landroid -llog
+
+endif # Android
+
 # ccache is a cheap, large win for this codebase: header-heavy legacy sources
 # are recompiled often during incremental builds.  Leave cross builds and
 # explicitly configured compiler command lines alone.
@@ -1321,6 +1357,7 @@ Q3OBJ = \
   $(B)/client/cl_scrn.o \
   $(B)/client/cl_ui.o \
   $(B)/client/cl_avi.o \
+  $(B)/client/touch.o \
   \
   $(B)/client/cm_load.o \
   $(B)/client/cm_patch.o \
@@ -1470,12 +1507,23 @@ Q3OBJ = \
   $(B)/client/tr_shadows.o \
   $(B)/client/tr_sky.o \
   $(B)/client/tr_surface.o \
-  $(B)/client/tr_world.o \
-  \
-  $(B)/client/sdl_gamma.o \
-  $(B)/client/sdl_input.o \
-  $(B)/client/sdl_snd.o \
-  \
+  $(B)/client/tr_world.o
+
+ifeq ($(PLATFORM),android)
+  Q3OBJ += \
+    $(B)/client/android_main.o \
+    $(B)/client/android_input.o \
+    $(B)/client/android_glimp.o \
+    $(B)/client/android_native_app_glue.o \
+    $(B)/client/android_snddma.o
+else
+  Q3OBJ += \
+    $(B)/client/sdl_gamma.o \
+    $(B)/client/sdl_input.o \
+    $(B)/client/sdl_snd.o
+endif
+
+  Q3OBJ += \
   $(B)/client/con_passive.o \
   $(B)/client/con_log.o \
   $(B)/client/sys_main.o
@@ -1600,8 +1648,10 @@ endif
 # One SDL/GLIMP object is enough for both the regular and the threaded path:
 # the -DSMP code is inert unless r_smp is enabled at run time.  Compiling it
 # only once avoids a duplicate compile and a duplicate link of the client.
+ifneq ($(PLATFORM),android)
 Q3POBJ += \
   $(B)/clientsmp/sdl_glimp.o
+endif
 
 $(B)/ZEQ2$(FULLBINEXT): $(Q3OBJ) $(Q3POBJ) $(LIBSDLMAIN) $(LIBOGG) $(LIBVORBIS) $(LIBVORBISFILE)
 	$(echo_cmd) "LD $@"
@@ -1980,6 +2030,15 @@ $(B)/client/%.o: $(RDIR)/%.c
 	$(DO_CC)
 
 $(B)/client/%.o: $(SDLDIR)/%.c
+	$(DO_CC)
+
+$(B)/client/%.o: $(ANDROID_JNI)/%.c
+	$(DO_CC)
+
+$(B)/client/android_native_app_glue.o: $(ANDROID_NDK)/sources/android/native_app_glue/android_native_app_glue.c
+	$(DO_CC)
+
+$(B)/client/null_snddma.o: $(NDIR)/null_snddma.c
 	$(DO_CC)
 
 $(B)/clientsmp/%.o: $(SDLDIR)/%.c

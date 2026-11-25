@@ -183,6 +183,8 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #define ARCH_STRING "alpha"
 #elif defined __sparc__
 #define ARCH_STRING "sparc"
+#elif defined __aarch64__
+#define ARCH_STRING "arm64"
 #elif defined __arm__
 #define ARCH_STRING "arm"
 #elif defined __cris__
