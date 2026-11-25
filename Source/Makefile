@@ -943,6 +943,9 @@ else
   STRIP_FLAG = -s
 endif
 
+# This code base predates C23; keep a stable language mode so newer GCC
+# releases don't treat legacy identifiers (e.g. lcc's "constexpr") as keywords.
+BASE_CFLAGS += -std=gnu17
 BASE_CFLAGS += -DPRODUCT_VERSION=\\\"$(VERSION)\\\"
 
 ifeq ($(V),1)
@@ -1115,7 +1118,7 @@ makedirs:
 #############################################################################
 
 TOOLS_OPTIMIZE = -g -Wall -fno-strict-aliasing
-TOOLS_CFLAGS += $(TOOLS_OPTIMIZE) \
+TOOLS_CFLAGS += $(TOOLS_OPTIMIZE) -std=gnu17 \
                 -DTEMPDIR=\"$(TEMPDIR)\" -DSYSTEM=\"\" \
                 -I$(Q3LCCSRCDIR) \
                 -I$(LBURGDIR)
@@ -1146,6 +1149,11 @@ Q3ASM       = $(B)/tools/q3asm$(BINEXT)
 LBURGOBJ= \
 	$(B)/tools/lburg/lburg.o \
 	$(B)/tools/lburg/gram.o
+
+# The parser source is checked in.  Disable make's implicit .y -> .c rule so
+# a fresh checkout doesn't silently replace it with output from whatever
+# bison/byacc happens to be installed (which breaks older compiler flags).
+$(LBURGDIR)/gram.c: ;
 
 $(B)/tools/lburg/%.o: $(LBURGDIR)/%.c
 	$(DO_TOOLS_CC)
@@ -1231,22 +1239,22 @@ $(Q3LCC): $(Q3LCCOBJ) $(Q3RCC) $(Q3CPP)
 
 define DO_Q3LCC
 $(echo_cmd) "Q3LCC $<"
-(cd $(BR)/tools && ./q3lcc.exe -o $(abspath $@) $(abspath $<))
+(cd $(B)/tools && ./q3lcc$(BINEXT) -o $(abspath $@) $(abspath $<))
 endef
 
 define DO_CGAME_Q3LCC
 $(echo_cmd) "CGAME_Q3LCC $<"
-(cd $(BR)/tools && ./q3lcc.exe -DCGAME -o $(abspath $@) $(abspath $<))
+(cd $(B)/tools && ./q3lcc$(BINEXT) -DCGAME -o $(abspath $@) $(abspath $<))
 endef
 
 define DO_GAME_Q3LCC
 $(echo_cmd) "GAME_Q3LCC $<"
-(cd $(BR)/tools && ./q3lcc.exe -DGAME -o $(abspath $@) $(abspath $<))
+(cd $(B)/tools && ./q3lcc$(BINEXT) -DGAME -o $(abspath $@) $(abspath $<))
 endef
 
 define DO_UI_Q3LCC
 $(echo_cmd) "UI_Q3LCC $<"
-(cd $(BR)/tools && ./q3lcc.exe -DUI -o $(abspath $@) $(abspath $<))
+(cd $(B)/tools && ./q3lcc$(BINEXT) -DUI -o $(abspath $@) $(abspath $<))
 endef
 
 
@@ -2156,16 +2164,11 @@ endif
 	toolsclean toolsclean2 toolsclean-debug toolsclean-release \
 	$(OBJ_D_FILES) $(TOOLSOBJ_D_FILES)
 
-$(BR)/tools/q3cpp.exe: $(Q3CPPOBJ)
-	$(echo_cmd) "LD $@"
-	$(Q)$(CC) $(TOOLS_CFLAGS) $(TOOLS_LDFLAGS) -o $@ $^ $(TOOLS_LIBS)
-	@cp $(BR)/tools/q3cpp.exe $(BR)/q3cpp.exe
-
 .PHONY: ensure_q3cpp
 
 ensure_q3cpp:
-	@cp $(BR)/tools/q3cpp.exe $(BR)/q3cpp.exe 2>/dev/null || true
-	@cp $(BR)/tools/q3cpp.exe $(BR)/tools/q3cpp.exe 2>/dev/null || true
+	@cp $(B)/tools/q3cpp$(BINEXT) $(B)/q3cpp$(BINEXT) 2>/dev/null || true
+	@cp $(B)/tools/q3cpp$(BINEXT) $(B)/tools/q3cpp$(BINEXT) 2>/dev/null || true
 
 $(BR)/Base/CGame/%.asm: ensure_q3cpp
 $(BR)/Base/Game/%.asm: ensure_q3cpp

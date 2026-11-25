@@ -1174,7 +1174,10 @@ static qboolean R_LoadMD4( model_t *mod, void *buffer, const char *mod_name )
 	mod->type = MOD_MD4;
 	size = LittleLong(pinmodel->ofsEnd);
 	mod->dataSize += size;
-	md4 = mod->md4 = ri.Hunk_Alloc( size, h_low );
+	// The model cache stores MD4 variants behind a common md4bHeader_t
+	// pointer.  This legacy loader still works with the original MD4 layout,
+	// so convert the cached pointer back to its local view.
+	md4 = (md4Header_t *)(mod->md4 = (md4bHeader_t *)ri.Hunk_Alloc( size, h_low ));
 
 	Com_Memcpy(md4, buffer, size);
 
