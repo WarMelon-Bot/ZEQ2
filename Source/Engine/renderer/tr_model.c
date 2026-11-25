@@ -25,10 +25,10 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 
 #define	LL(x) x=LittleLong(x)
 
-static qboolean R_LoadMD3 (model_t *mod, int lod, void *buffer, const char *name );
+static qboolean R_LoadMD3 (model_t *mod, int lod, void *buffer, int fileSize, const char *name );
 static qboolean R_LoadMD4 (model_t *mod, void *buffer, const char *name );
-static qboolean R_LoadMD4A (model_t *mod, void *buffer, const char *name );
-static qboolean R_LoadMD4B (model_t *mod, void *buffer, const char *name );
+static qboolean R_LoadMD4A (model_t *mod, void *buffer, int fileSize, const char *name );
+static qboolean R_LoadMD4B (model_t *mod, void *buffer, int fileSize, const char *name );
 #ifdef RAVENMD4
 static qboolean R_LoadMDR (model_t *mod, void *buffer, int filesize, const char *name );
 #endif
@@ -85,9 +85,12 @@ asked for again.
 */
 qhandle_t RE_RegisterModel( const char *name ) {
 	model_t		*mod;
-	unsigned	*buf;
+	unsigned	*buf = NULL;
+	unsigned	*animBuf = NULL;
 	int			lod;
 	int			ident;
+	int			fileLen;
+	int			animLen;
 	qboolean	loaded;
 	qhandle_t	hModel;
 	int			numLoaded;
@@ -115,6 +118,9 @@ qhandle_t RE_RegisterModel( const char *name ) {
 		}
 	}
 
+	// make sure the render thread is stopped before we publish a new model
+	R_SyncRenderThread();
+
 	// allocate a new model_t
 
 	if ( ( mod = R_AllocModel() ) == NULL ) {
@@ -124,10 +130,6 @@ qhandle_t RE_RegisterModel( const char *name ) {
 
 	// only set the name after the model has been successfully loaded
 	Q_strncpyz( mod->name, name, sizeof( mod->name ) );
-
-
-	// make sure the render thread is stopped
-	R_SyncRenderThread();
 
 	mod->numLods = 0;
 
@@ -151,7 +153,7 @@ qhandle_t RE_RegisterModel( const char *name ) {
 			strcat( filename, namebuf );
 		}
 
-		ri.FS_ReadFile( filename, (void **)&buf );
+		fileLen = ri.FS_ReadFile( filename, (void **)&buf );
 		if ( !buf ) {
 			//try md4 if md3 is not present
 			char namebuf[80];
@@ -162,20 +164,25 @@ qhandle_t RE_RegisterModel( const char *name ) {
 			sprintf( namebuf, ".zMesh" );
 			strcat( filename, namebuf );
 
-			ri.FS_ReadFile( filename, (void **)&buf );
+			fileLen = ri.FS_ReadFile( filename, (void **)&buf );
 			if ( !buf ) {
 				continue;
 			}
 		}
-		
+
 		loadmodel = mod;
-		
+		loaded = qfalse;
+
+		if ( fileLen < (int)sizeof( ident ) ) {
+			ri.Printf( PRINT_WARNING, "RE_RegisterModel: truncated model file %s\n", filename );
+			goto fail;
+		}
+
 		ident = LittleLong(*(unsigned *)buf);
-		
+
 		if ( ident == MD4B_IDENT ) {
 			//load animations into a seperate buffer
 			char		animNamebuf[80];
-			unsigned	*animBuf;
 			char		animFilename[1024];
 			int			animIdent;
 
@@ -187,31 +194,38 @@ qhandle_t RE_RegisterModel( const char *name ) {
 			sprintf( animNamebuf, ".zAnimation" );
 			strcat( animFilename, animNamebuf );
 
-			ri.FS_ReadFile( animFilename, (void **)&animBuf );
-			
+			animLen = ri.FS_ReadFile( animFilename, (void **)&animBuf );
+			if ( !animBuf || animLen < (int)sizeof( animIdent ) ) {
+				ri.Printf (PRINT_WARNING,"RE_RegisterModel: unable to find MD4A animation file for %s\n", name);
+				goto fail;
+			}
+
 			animIdent = LittleLong(*(unsigned *)animBuf);
 			if(animIdent != MD4A_IDENT) {
 				ri.Printf (PRINT_WARNING,"RE_RegisterModel: unable to find MD4A animation file for %s\n", name);
 				goto fail;
 			}
-			if(buf && animBuf)
-				loaded = R_LoadMD4B( mod, buf, name ) && R_LoadMD4A( mod, animBuf, name );
-			
-			ri.FS_FreeFile (animBuf);
+			loaded = R_LoadMD4B( mod, buf, fileLen, name ) &&
+				R_LoadMD4A( mod, animBuf, animLen, name );
 		} else {
 			if ( ident != MD3_IDENT ) {
 				ri.Printf (PRINT_WARNING,"RE_RegisterModel: unknown fileid for %s\n", name);
-		ri.Printf (PRINT_WARNING,"RE_RegisterModel: Model Ident = %i\n", ident);
-		ri.Printf (PRINT_WARNING,"RE_RegisterModel: MD4 Ident = %i\n", MD4_IDENT);
-		ri.Printf (PRINT_WARNING,"RE_RegisterModel: MD4A Ident = %i\n", MD4A_IDENT);
-		ri.Printf (PRINT_WARNING,"RE_RegisterModel: MD4B Ident = %i\n", MD4B_IDENT);
+				ri.Printf (PRINT_WARNING,"RE_RegisterModel: Model Ident = %i\n", ident);
+				ri.Printf (PRINT_WARNING,"RE_RegisterModel: MD4 Ident = %i\n", MD4_IDENT);
+				ri.Printf (PRINT_WARNING,"RE_RegisterModel: MD4A Ident = %i\n", MD4A_IDENT);
+				ri.Printf (PRINT_WARNING,"RE_RegisterModel: MD4B Ident = %i\n", MD4B_IDENT);
 				goto fail;
 			}
 
-			loaded = R_LoadMD3( mod, lod, buf, name );
+			loaded = R_LoadMD3( mod, lod, buf, fileLen, name );
 		}
-		
-		ri.FS_FreeFile (buf);
+
+		ri.FS_FreeFile( buf );
+		buf = NULL;
+		if ( animBuf ) {
+			ri.FS_FreeFile( animBuf );
+			animBuf = NULL;
+		}
 
 		if ( !loaded ) {
 			if ( lod == 0 ) {
@@ -248,6 +262,16 @@ qhandle_t RE_RegisterModel( const char *name ) {
 #endif
 
 fail:
+	// Every file read through FS_ReadFile is temporary hunk memory.  Leaving
+	// one allocated keeps fs_loadStack above zero, so temp memory can never be
+	// recycled and repeated model swaps eventually exhaust the hunk.
+	if ( buf ) {
+		ri.FS_FreeFile( buf );
+	}
+	if ( animBuf ) {
+		ri.FS_FreeFile( animBuf );
+	}
+
 	// we still keep the model_t around, so if the model name is asked for
 	// again, we won't bother scanning the filesystem
 	mod->type = MOD_BAD;
@@ -424,10 +448,29 @@ fail:
 
 /*
 =================
+R_ValidateModelSize
+
+A model file trusts the ofsEnd field from its header when it is copied into
+permanent hunk memory.  Reject truncated files before copying so a bad model
+cannot read past the end of the temporary FS_ReadFile buffer.
+=================
+*/
+static qboolean R_ValidateModelSize( const char *kind, const char *mod_name,
+									 int fileSize, int headerSize, int size ) {
+	if ( fileSize < headerSize || size < headerSize || size > fileSize ) {
+		ri.Printf( PRINT_WARNING, "%s: %s has invalid size (%i, file is %i bytes)\n",
+				   kind, mod_name, size, fileSize );
+		return qfalse;
+	}
+	return qtrue;
+}
+
+/*
+=================
 R_LoadMD3
 =================
 */
-static qboolean R_LoadMD3 (model_t *mod, int lod, void *buffer, const char *mod_name ) {
+static qboolean R_LoadMD3 (model_t *mod, int lod, void *buffer, int fileSize, const char *mod_name ) {
 	int					i, j;
 	md3Header_t			*pinmodel;
     md3Frame_t			*frame;
@@ -440,6 +483,11 @@ static qboolean R_LoadMD3 (model_t *mod, int lod, void *buffer, const char *mod_
 	int					version;
 	int					size;
 
+	if ( fileSize < (int)sizeof( md3Header_t ) ) {
+		ri.Printf( PRINT_WARNING, "R_LoadMD3: %s is shorter than its header\n", mod_name );
+		return qfalse;
+	}
+
 	pinmodel = (md3Header_t *)buffer;
 
 	version = LittleLong (pinmodel->version);
@@ -449,12 +497,16 @@ static qboolean R_LoadMD3 (model_t *mod, int lod, void *buffer, const char *mod_
 		return qfalse;
 	}
 
-	mod->type = MOD_MESH;
 	size = LittleLong(pinmodel->ofsEnd);
+	if ( !R_ValidateModelSize( "R_LoadMD3", mod_name, fileSize, sizeof( md3Header_t ), size ) ) {
+		return qfalse;
+	}
+
+	mod->type = MOD_MESH;
 	mod->dataSize += size;
 	mod->md3[lod] = ri.Hunk_Alloc( size, h_low );
 
-	Com_Memcpy (mod->md3[lod], buffer, LittleLong(pinmodel->ofsEnd) );
+	Com_Memcpy (mod->md3[lod], buffer, size );
 
     LL(mod->md3[lod]->ident);
     LL(mod->md3[lod]->version);
@@ -920,7 +972,7 @@ static qboolean R_LoadMDR( model_t *mod, void *buffer, int filesize, const char 
 }
 #endif
 
-static qboolean R_LoadMD4A( model_t *mod, void *buffer, const char *mod_name )
+static qboolean R_LoadMD4A( model_t *mod, void *buffer, int fileSize, const char *mod_name )
 {
 	int				i, j, k;
 	md4aHeader_t		*pinmodel, *md4;
@@ -931,6 +983,11 @@ static qboolean R_LoadMD4A( model_t *mod, void *buffer, const char *mod_name )
 	shader_t		*sh;
 	int				frameSize;
 	int				*cmap;
+
+	if ( fileSize < (int)sizeof( md4aHeader_t ) ) {
+		ri.Printf( PRINT_WARNING, "R_LoadMD4A: %s is shorter than its header\n", mod_name );
+		return qfalse;
+	}
 
 	pinmodel = (md4aHeader_t *)buffer;
 	ri.Printf( PRINT_WARNING, "R_LoadMD4A:  Running\n");
@@ -943,10 +1000,14 @@ static qboolean R_LoadMD4A( model_t *mod, void *buffer, const char *mod_name )
 	}
 
 	size = LittleLong(pinmodel->ofsEnd);
+	if ( !R_ValidateModelSize( "R_LoadMD4A", mod_name, fileSize, sizeof( md4aHeader_t ), size ) ) {
+		return qfalse;
+	}
+
 	mod->dataSize += size;
 	md4 = mod->animations = ri.Hunk_Alloc( size, h_low );
 
-	Com_Memcpy( md4, buffer, LittleLong(pinmodel->ofsEnd) );
+	Com_Memcpy( md4, buffer, size );
 
     LL(md4->ident);
     LL(md4->version);
@@ -955,14 +1016,28 @@ static qboolean R_LoadMD4A( model_t *mod, void *buffer, const char *mod_name )
     LL(md4->ofsFrames);
     LL(md4->ofsEnd);
 
-	if ( md4->numFrames < 1 )
+	if ( md4->numFrames < 1 || md4->numFrames > MD4A_MAX_FRAMES )
 	{
-		ri.Printf( PRINT_WARNING, "R_LoadMD4A: %s has no frames\n", mod_name );
+		ri.Printf( PRINT_WARNING, "R_LoadMD4A: %s has invalid frame count (%i)\n", mod_name, md4->numFrames );
 		return qfalse;
 	}
- 
+	if ( md4->numBones < 0 || md4->numBones > MD4B_MAX_BONES )
+	{
+		ri.Printf( PRINT_WARNING, "R_LoadMD4A: %s has invalid bone count (%i)\n", mod_name, md4->numBones );
+		return qfalse;
+	}
+
 	// swap all the frames
 	frameSize = (int)( &((md4aFrame_t *)0)->bones[ md4->numBones ] );
+	if ( frameSize <= 0 ||
+		 md4->ofsFrames < (int)sizeof( md4aHeader_t ) ||
+		 md4->ofsBones < (int)sizeof( md4aHeader_t ) ||
+		 md4->ofsFrames + md4->numFrames * frameSize > size ||
+		 md4->ofsBones + md4->numBones * (int)sizeof( md4aBoneName_t ) > size )
+	{
+		ri.Printf( PRINT_WARNING, "R_LoadMD4A: %s has out of range offsets\n", mod_name );
+		return qfalse;
+	}
     for ( i = 0 ; i < md4->numFrames ; i++, frame++)
 	{
 	    frame = (md4aFrame_t *) ( (byte *)md4 + sizeof(md4aHeader_t) + i * frameSize );
@@ -996,7 +1071,7 @@ static qboolean R_LoadMD4A( model_t *mod, void *buffer, const char *mod_name )
 	ri.Printf( PRINT_WARNING, "R_LoadMD4A: %s has %i frames, %i bones\n", mod_name, md4->numFrames, md4->numBones );
 	return qtrue;
 }
-static qboolean R_LoadMD4B( model_t *mod, void *buffer, const char *mod_name )
+static qboolean R_LoadMD4B( model_t *mod, void *buffer, int fileSize, const char *mod_name )
 {
 int				i, j, k;
 	md4bHeader_t		*pinmodel, *md4;
@@ -1004,11 +1079,17 @@ int				i, j, k;
 	md4bSurface_t	*surf;
 	md4bVertex_t		*v;
 	md4bTriangle_t	*tri;
+	byte			*end;
 	int				version;
 	int				size;
 	shader_t		*sh;
 	int				frameSize;
 	int				*cmap;
+
+	if ( fileSize < (int)sizeof( md4bHeader_t ) ) {
+		ri.Printf( PRINT_WARNING, "R_LoadMD4B: %s is shorter than its header\n", mod_name );
+		return qfalse;
+	}
 
 	pinmodel = (md4bHeader_t *)buffer;
 	ri.Printf( PRINT_WARNING, "R_LoadMD4B:  Running\n");
@@ -1020,19 +1101,36 @@ int				i, j, k;
 		return qfalse;
 	}
 
-	mod->type = MOD_MD4;
 	size = LittleLong(pinmodel->ofsEnd);
+	if ( !R_ValidateModelSize( "R_LoadMD4B", mod_name, fileSize, sizeof( md4bHeader_t ), size ) ) {
+		return qfalse;
+	}
+
+	mod->type = MOD_MD4;
 	mod->dataSize += size;
 	md4 = mod->md4 = ri.Hunk_Alloc( size, h_low );
+	end = (byte *)md4 + size;
 
-	Com_Memcpy( md4, buffer, LittleLong(pinmodel->ofsEnd) );
+	Com_Memcpy( md4, buffer, size );
 
     LL(md4->ident);
     LL(md4->version);
     LL(md4->numBones);
     LL(md4->numSurfs);
+    LL(md4->ofsBones);
     LL(md4->ofsSurfs);
     LL(md4->ofsEnd);
+
+	if ( md4->numBones < 0 || md4->numBones > MD4B_MAX_BONES ||
+		 md4->numSurfs < 0 || md4->numSurfs > MD4B_MAX_SURFACES ||
+		 md4->ofsBones < (int)sizeof( md4bHeader_t ) ||
+		 md4->ofsSurfs < (int)sizeof( md4bHeader_t ) ||
+		 md4->ofsBones + md4->numBones * (int)sizeof( md4bBoneName_t ) > size ||
+		 md4->ofsSurfs + (int)sizeof( md4bSurface_t ) > size )
+	{
+		ri.Printf( PRINT_WARNING, "R_LoadMD4B: %s has invalid counts or offsets\n", mod_name );
+		return qfalse;
+	}
 
 	// swap all bones
 	bones = (md4bBoneName_t *)((byte *)md4 + md4->ofsBones);
@@ -1047,6 +1145,12 @@ int				i, j, k;
 	surf = (md4bSurface_t *) ( (byte *)md4 + md4->ofsSurfs);
 	for ( i = 0 ; i < md4->numSurfs ; i++)
 	{
+		if ( (byte *)surf + sizeof( *surf ) > end )
+		{
+			ri.Printf( PRINT_WARNING, "R_LoadMD4B: %s has an out of range surface\n", mod_name );
+			return qfalse;
+		}
+
 		LL(surf->ident);
 		LL(surf->shaderIndex);
 		LL(surf->lodBias);
@@ -1059,15 +1163,22 @@ int				i, j, k;
 		LL(surf->ofsCollapseMap);
 		LL(surf->ofsEnd);
 			
-		if ( surf->numVerts > SHADER_MAX_VERTEXES )
+		// The exporter has historically emitted surface block sizes that are
+		// slightly smaller than the variable-size vertex data it writes.  Bound
+		// array accesses by the validated file size rather than ofsEnd so those
+		// assets keep loading, while still rejecting offsets outside the file.
+		if ( surf->numVerts < 0 || surf->numVerts > SHADER_MAX_VERTEXES ||
+			 surf->numTris < 0 || surf->numTris * 3 > SHADER_MAX_INDEXES ||
+			 surf->ofsEnd <= 0 ||
+			 (byte *)surf + surf->ofsEnd > end ||
+			 surf->ofsVerts < (int)sizeof( md4bSurface_t ) ||
+			 surf->ofsTris < (int)sizeof( md4bSurface_t ) ||
+			 surf->ofsCollapseMap < (int)sizeof( md4bSurface_t ) ||
+			 (byte *)surf + surf->ofsTris + surf->numTris * (int)sizeof( md4bTriangle_t ) > end ||
+			 (byte *)surf + surf->ofsCollapseMap + surf->numVerts * (int)sizeof( int ) > end )
 		{
-			ri.Error (ERR_DROP, "R_LoadMD4B: %s has more than %i verts on a surface (%i)",
-				mod_name, SHADER_MAX_VERTEXES, surf->numVerts );
-		}
-		if ( surf->numTris*3 > SHADER_MAX_INDEXES )
-		{
-			ri.Error (ERR_DROP, "R_LoadMD4B: %s has more than %i triangles on a surface (%i)",
-				mod_name, SHADER_MAX_INDEXES / 3, surf->numTris );
+			ri.Printf( PRINT_WARNING, "R_LoadMD4B: %s has an invalid surface\n", mod_name );
+			return qfalse;
 		}
 
 		// change to surface identifier
@@ -1100,6 +1211,11 @@ int				i, j, k;
 		v = (md4bVertex_t *) ( (byte *)surf + surf->ofsVerts);
 		for ( j = 0 ; j < surf->numVerts ; j++ )
 		{
+			if ( (byte *)v + sizeof( *v ) > end )
+			{
+				ri.Printf( PRINT_WARNING, "R_LoadMD4B: %s has an out of range vertex\n", mod_name );
+				return qfalse;
+			}
 			vec_t tmpWeight;
 			tmpWeight = 0.0;
 			v->normal[0] = LittleFloat(v->normal[0]);
@@ -1110,6 +1226,12 @@ int				i, j, k;
 			v->texCoords[1] = LittleFloat(v->texCoords[1]);
 
 			LL(v->numWeights);
+			if ( v->numWeights < 0 || v->numWeights > MD4B_MAX_WEIGHTS ||
+				 (byte *)&v->weights[ v->numWeights ] > end )
+			{
+				ri.Printf( PRINT_WARNING, "R_LoadMD4B: %s has invalid vertex weights\n", mod_name );
+				return qfalse;
+			}
 
 			for ( k = 0 ; k < v->numWeights ; k++ )
 			{
