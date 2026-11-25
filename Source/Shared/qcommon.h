@@ -881,7 +881,12 @@ void *S_Malloc( int size );			// NOT 0 filled memory only for small allocations
 void Z_Free( void *ptr );
 void Z_FreeTags( int tag );
 int Z_AvailableMemory( void );
+void Z_CheckHeap( void );
 void Z_LogHeap( void );
+
+void Com_InitSmallZoneMemory( void );
+void Com_InitZoneMemory( void );
+void Com_InitHunkMemory( void );
 
 void Hunk_Clear( void );
 void Hunk_ClearToMark( void );
