@@ -11,6 +11,7 @@
 #   ./build.sh server [args..] run the dedicated server
 #   ./build.sh deps            check (and install) build dependencies
 #   ./build.sh win64           cross-build the dedicated server and game DLL/QVMs for Windows x64
+#   ./build.sh android         cross-build ARM Android clients and package a signed APK
 #   ./build.sh clean           remove all build artifacts
 #
 # Environment overrides: JOBS, MAKE_ARGS, DEBIAN_FRONTEND, SDL_VIDEODRIVER,
@@ -24,6 +25,15 @@ SOURCE_DIR="$ROOT/Source"
 JOBS="${JOBS:-$(command -v nproc >/dev/null 2>&1 && nproc || echo 2)}"
 MAKE_ARGS="${MAKE_ARGS:-}"
 PROJECT="ZEQ2-Lite"
+
+ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+ANDROID_NDK="${ANDROID_NDK:-/usr/local/lib/android/sdk/ndk/27.3.13750724}"
+ANDROID_HOST_TAG="${ANDROID_HOST_TAG:-linux-x86_64}"
+ANDROID_PLATFORM="${ANDROID_PLATFORM:-android-35}"
+ANDROID_BUILD_TOOLS="${ANDROID_BUILD_TOOLS:-35.0.0}"
+ANDROID_ABIS="${ANDROID_ABIS:-arm64-v8a armeabi-v7a}"
+ANDROID_MIN_SDK=24
+ANDROID_TARGET_SDK=35
 
 log() { printf '\033[1;32m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33mwarning:\033[0m %s\n' "$*" >&2; }
@@ -143,6 +153,115 @@ build_win64() {
         [[ -f "$artifact" ]] || die "Expected Windows x64 artifact was not built: $artifact"
     done
     log "Windows x64 build complete. Artifacts are in $out_dir"
+}
+
+android_abi_arch() {
+    case "$1" in
+        arm64-v8a)   printf 'arm64\n' ;;
+        armeabi-v7a) printf 'arm\n' ;;
+        *) return 1 ;;
+    esac
+}
+
+android_abi_cc() {
+    case "$1" in
+        arm64-v8a)   printf 'aarch64-linux-android24-clang\n' ;;
+        armeabi-v7a) printf 'armv7a-linux-androideabi24-clang\n' ;;
+        *) return 1 ;;
+    esac
+}
+
+build_android() {
+    local sdk_ndk_dir="$ANDROID_NDK/toolchains/llvm/prebuilt/$ANDROID_HOST_TAG/bin"
+    local build_tools="$ANDROID_HOME/build-tools/$ANDROID_BUILD_TOOLS"
+    local android_jar="$ANDROID_HOME/platforms/$ANDROID_PLATFORM/android.jar"
+    local aapt2="$build_tools/aapt2"
+    local zipalign="$build_tools/zipalign"
+    local apksigner="$build_tools/apksigner"
+    local out_dir="$SOURCE_DIR/Build/Android"
+    local stage="$out_dir/stage"
+    local unsigned="$stage/unsigned.apk"
+    local aligned="$stage/aligned.apk"
+    local keystore="$out_dir/debug.keystore"
+    local apk="$out_dir/ZEQ2-Lite-debug.apk"
+    local host_qvm_dir="$SOURCE_DIR/Build/Release-${PLATFORM}-${ARCH}"
+    local abi arch cc source_so
+
+    command -v keytool >/dev/null 2>&1 || die "keytool not found; install a JDK to sign the APK."
+    command -v zip >/dev/null 2>&1 || die "zip not found; it is required to stage APK assets."
+    [[ -x "$aapt2" ]] || die "aapt2 not found at $aapt2 (override ANDROID_BUILD_TOOLS)."
+    [[ -x "$zipalign" ]] || die "zipalign not found at $zipalign."
+    [[ -x "$apksigner" ]] || die "apksigner not found at $apksigner."
+    [[ -f "$android_jar" ]] || die "android.jar not found at $android_jar (override ANDROID_PLATFORM)."
+    [[ -d "$sdk_ndk_dir" ]] || die "Android NDK toolchain not found at $sdk_ndk_dir (override ANDROID_NDK/ANDROID_HOST_TAG)."
+
+    log "Building host QVMs for the Android assets..."
+    make -C "$SOURCE_DIR" release -j"$JOBS" USE_LOCAL_HEADERS=0 \
+        BUILD_CLIENT=0 BUILD_SERVER=0 BUILD_GAME_SO=0 BUILD_GAME_QVM=1 $MAKE_ARGS
+
+    for abi in $ANDROID_ABIS; do
+        arch="$(android_abi_arch "$abi")" || die "Unsupported Android ABI: $abi"
+        cc="$(android_abi_cc "$abi")" || die "Unsupported Android ABI: $abi"
+        [[ -x "$sdk_ndk_dir/$cc" ]] || die "Android compiler not found: $sdk_ndk_dir/$cc"
+
+        log "Cross-building $abi native library..."
+        rm -rf "$SOURCE_DIR/Build/Release-android-$arch"
+        make -C "$SOURCE_DIR" \
+            PLATFORM=android ARCH="$arch" CC="$sdk_ndk_dir/$cc" \
+            ANDROID_NDK="$ANDROID_NDK" CROSS_COMPILING=1 USE_LOCAL_HEADERS=1 \
+            BUILD_CLIENT=1 BUILD_SERVER=0 BUILD_GAME_SO=0 BUILD_GAME_QVM=0 \
+            BUILD_CLIENT_SMP=0 -j"$JOBS" release $MAKE_ARGS
+    done
+
+    log "Staging Android APK assets and native libraries..."
+    rm -rf "$stage" "$apk"
+    mkdir -p "$stage/assets/ZEQ2/vm"
+    for abi in $ANDROID_ABIS; do
+        arch="$(android_abi_arch "$abi")"
+        mkdir -p "$stage/lib/$abi"
+        case "$abi" in
+            arm64-v8a)   source_so="$SOURCE_DIR/Build/Release-android-arm64/ZEQ2.arm64" ;;
+            armeabi-v7a) source_so="$SOURCE_DIR/Build/Release-android-arm/ZEQ2.arm" ;;
+        esac
+        [[ -f "$source_so" ]] || die "Native library was not built: $source_so"
+        cp -f "$source_so" "$stage/lib/$abi/libzeq2.so"
+    done
+
+    cp -R "$ROOT/android/assets/." "$stage/assets/"
+    for qvm in cgame game ui; do
+        [[ -f "$host_qvm_dir/Base/vm/$qvm.qvm" ]] || die "Missing host-built QVM: $host_qvm_dir/Base/vm/$qvm.qvm"
+        cp -f "$host_qvm_dir/Base/vm/$qvm.qvm" "$stage/assets/ZEQ2/vm/"
+    done
+
+    log "Linking Android manifest..."
+    "$aapt2" link --manifest "$ROOT/android/AndroidManifest.xml" \
+        -I "$android_jar" \
+        --min-sdk-version "$ANDROID_MIN_SDK" --target-sdk-version "$ANDROID_TARGET_SDK" \
+        --version-code 1 --version-name 1.0 \
+        -o "$stage/base.apk"
+
+    cp -f "$stage/base.apk" "$unsigned"
+    (cd "$stage" && zip -q -r unsigned.apk assets lib)
+
+    log "Aligning and signing APK..."
+    "$zipalign" -f 4 "$unsigned" "$aligned"
+
+    if [[ ! -f "$keystore" ]]; then
+        log "Generating a debug signing keystore at $keystore"
+        keytool -genkeypair -noprompt \
+            -keystore "$keystore" -storepass android -keypass android \
+            -alias androiddebugkey -dname "CN=Android Debug,O=Android,C=US" \
+            -keyalg RSA -keysize 2048 -validity 10000 >/dev/null
+    fi
+
+    "$apksigner" sign \
+        --ks "$keystore" --ks-pass pass:android --key-pass pass:android \
+        --v1-signing-enabled true --v2-signing-enabled true \
+        --out "$apk" "$aligned"
+    "$apksigner" verify --print-certs "$apk" >/dev/null
+
+    log "Android build complete: $apk"
+    log "Game data: install a ZEQ2 .pk3 into $stage/assets/ZEQ2/ and rebuild to include it."
 }
 
 # ---------------------------------------------------------------------------
@@ -293,6 +412,7 @@ Commands:
   release   Build only the optimized release target
   test      Smoke-test the dedicated server and the threaded client
   win64     Cross-build Windows x64 server and game modules (needs mingw-w64)
+  android   Cross-build ARM Android clients and package a signed APK
   run       Run the graphical client (extra arguments are passed through)
   smp       Run the client with the multi-threaded renderer (r_smp 1)
   server    Run the dedicated server (extra arguments are passed through)
@@ -308,6 +428,7 @@ Examples:
   $0 server +map mymap
   JOBS=2 $0 build
   $0 win64
+  $0 android
 EOF
 }
 
@@ -326,7 +447,7 @@ while (($#)); do
             ;;
         *)
             if [[ "$1" == all || "$1" == deps || "$1" == build || "$1" == release || \
-                  "$1" == test || "$1" == win64 || "$1" == run || "$1" == smp || \
+                  "$1" == test || "$1" == win64 || "$1" == android || "$1" == run || "$1" == smp || \
                   "$1" == server || "$1" == clean ]]; then
                 command_name="$1"
             else
@@ -359,6 +480,9 @@ case "$command_name" in
         ;;
     win64)
         build_win64
+        ;;
+    android)
+        build_android
         ;;
     run)
         run_binary "ZEQ2.$ARCH" "${args[@]}"

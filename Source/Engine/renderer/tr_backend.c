@@ -20,6 +20,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 ===========================================================================
 */
 #include "tr_local.h"
+#include "../client/touch.h"
 
 backEndData_t	*backEndData[SMP_FRAMES];
 backEndState_t	backEnd;
@@ -1139,6 +1140,9 @@ const void	*RB_SwapBuffers( const void *data ) {
 	}
 
 	GLimp_LogComment( "***************** RB_SwapBuffers *****************\n\n\n" );
+
+	/* Draw the virtual touch overlay on top of the 2D UI. */
+	Touch_DrawOverlay();
 
 	GLimp_EndFrame();
 

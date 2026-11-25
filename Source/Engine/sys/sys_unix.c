@@ -37,6 +37,10 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include <libgen.h>
 #include <fcntl.h>
 
+#ifdef ANDROID
+#include <android/log.h>
+#endif
+
 qboolean stdinIsATTY;
 
 // Used to determine where to store user-specific files
@@ -53,6 +57,13 @@ char *Sys_DefaultHomePath(void)
 
 	if( !*homePath )
 	{
+#ifdef ANDROID
+		if( ( p = getenv( "ZEQ2_HOME" ) ) != NULL && *p )
+		{
+			Q_strncpyz( homePath, p, sizeof( homePath ) );
+		}
+		else
+#endif
 		if( ( p = getenv( "HOME" ) ) != NULL )
 		{
 			Q_strncpyz( homePath, p, sizeof( homePath ) );
@@ -76,7 +87,13 @@ Sys_TempPath
 */
 const char *Sys_TempPath( void )
 {
+#ifdef ANDROID
+	const char *TMPDIR = getenv( "ZEQ2_TMPDIR" );
+	if( TMPDIR == NULL || TMPDIR[ 0 ] == '\0' )
+		TMPDIR = getenv( "TMPDIR" );
+#else
 	const char *TMPDIR = getenv( "TMPDIR" );
+#endif
 
 	if( TMPDIR == NULL || TMPDIR[ 0 ] == '\0' )
 		return "/tmp";
@@ -505,7 +522,9 @@ void Sys_ErrorDialog( const char *error )
 
 	Sys_Print( va( "%s\n", error ) );
 
-#ifndef DEDICATED
+#ifdef ANDROID
+	__android_log_print( ANDROID_LOG_ERROR, "ZEQ2", "%s", error );
+#elif !defined(DEDICATED)
 	Sys_Dialog( DT_ERROR, va( "%s. See \"%s\" for details.", error, ospath ), "Error" );
 #endif
 
@@ -621,6 +640,12 @@ Display a *nix dialog box
 */
 dialogResult_t Sys_Dialog( dialogType_t type, const char *message, const char *title )
 {
+#ifdef ANDROID
+	/* There are no desktop dialog helpers on Android; log and continue. */
+	__android_log_print( ANDROID_LOG_ERROR, "ZEQ2", "%s: %s", title, message );
+	return DR_OK;
+}
+#else
 	typedef enum
 	{
 		NONE = 0,
@@ -693,7 +718,8 @@ dialogResult_t Sys_Dialog( dialogType_t type, const char *message, const char *t
 	Com_DPrintf( S_COLOR_YELLOW "WARNING: failed to show a dialog\n" );
 	return DR_OK;
 }
-#endif
+#endif /* ANDROID */
+#endif /* !MACOS_X */
 
 /*
 ==============

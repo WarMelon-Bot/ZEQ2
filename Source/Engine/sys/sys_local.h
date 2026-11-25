@@ -55,5 +55,10 @@ void Sys_SigHandler( int signal );
 void Sys_ErrorDialog( const char *error );
 void Sys_AnsiColorPrint( const char *msg );
 
+#ifdef ANDROID
+/* NativeActivity entry wrapper in android/jni/android_main.c. */
+int Sys_EngineMain( int argc, char **argv );
+#endif
+
 int Sys_PID( void );
 qboolean Sys_PIDIsRunning( int pid );
