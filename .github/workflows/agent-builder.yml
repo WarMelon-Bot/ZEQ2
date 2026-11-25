@@ -1,6 +1,12 @@
 name: Autonomous Build & Fix Agent
 
 on:
+  workflow_dispatch:
+    inputs:
+      task:
+        description: 'Task for the agent'
+        required: true
+        default: 'Inspect the repo, build a CLI/build script, compile, and fix any errors.'
   issues:
     types: [opened]
   issue_comment:
@@ -14,8 +20,9 @@ permissions:
 jobs:
   run-agent:
     if: |
-      github.event.sender.login == github.repository_owner &&
-      contains(github.event.comment.body || github.event.issue.body, '@agent')
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.sender.login == github.repository_owner &&
+      contains(github.event.comment.body || github.event.issue.body, '@agent'))
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -30,9 +37,18 @@ jobs:
       - name: Install Gemini CLI
         run: npm install -g @google/gemini-cli
 
+      - name: Configure Git Identity
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@://github.com"
+
       - name: Run Autonomous Agent
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GEMINI_CLI_TRUST_WORKSPACE: "true"
         run: |
-          gemini --debug --yolo -p "Read the repository files and follow the instructions in this GitHub Issue: ${{ github.event.comment.body || github.event.issue.body }}. Build any CLI or build scripts needed, compile and run the source code, inspect all compiler or runtime errors, fix them, and verify the build succeeds cleanly. Finally, create a new git branch, commit your changes, push the branch, and open a Pull Request using the gh CLI."
+          gemini --skip-trust --yolo -p "Read the repository files and follow these instructions.
+          Original Issue: ${{ github.event.issue.body }}
+          Latest Comment / Manual Task: ${{ github.event.inputs.task || github.event.comment.body }}
+          Build any CLI or build scripts needed, compile and run the source code, inspect all compiler or runtime errors, fix them, and verify the build succeeds cleanly. Finally, create a new git branch, commit your changes, push the branch, and open a Pull Request using the gh CLI."
