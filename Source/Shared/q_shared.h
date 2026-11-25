@@ -1006,6 +1006,13 @@ typedef struct {
 #define	MAX_PS_EVENTS			2
 #define PS_PMOVEFRAMECOUNTBITS	6
 
+// The VM compiler uses 4-byte pointers even when the engine is 64-bit.  Keep
+// the two cache fields below the same width in 32-bit/QVM builds so that the
+// engine and game modules agree on every offset after them.
+#if defined( Q3_VM ) || ( !defined( _WIN64 ) && !defined( __LP64__ ) && !defined( __x86_64__ ) )
+#define VM_POINTER_PAD 1
+#endif
+
 // playerState_t is the information needed by both the client and server
 // to predict player motion and actions
 // nothing outside of pmove should modify these, or some degree of prediction error
@@ -1055,6 +1062,9 @@ typedef struct playerState_s {
 	int			lockedPlayerData[MAX_LOCKED_STATS];
 	playerState *lockedPlayer;
 	vec3_t		*lockedPosition;
+#ifdef VM_POINTER_PAD
+	int			vmPointerPad[2];	// match 64-bit pointer storage
+#endif
 	vec3_t		soarLimit;
 	vec3_t		soarBase;
 	int			knockBackDirection;

@@ -23,6 +23,8 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 // this is only used for visualization tools in cm_ debug functions
 
 
+#include <stddef.h>
+
 #include "cm_local.h"
 
 
@@ -276,7 +278,9 @@ winding_t	*CopyWinding (winding_t *w)
 	winding_t	*c;
 
 	c = AllocWinding (w->numpoints);
-	size = (long)((winding_t *)0)->p[w->numpoints];
+	// Compute the variable-sized part explicitly. Casting a pointer through
+	// long loses information on LLP64 (64-bit Windows), where long is 32 bit.
+	size = offsetof(winding_t, p) + (size_t)w->numpoints * sizeof(w->p[0]);
 	Com_Memcpy (c, w, size);
 	return c;
 }

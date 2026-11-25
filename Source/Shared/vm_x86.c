@@ -1170,8 +1170,11 @@ int	VM_CallCompiled( vm_t *vm, int *args ) {
 
 	programCounter = 0;
 
-	programStack -= 48;
+	programStack -= (MAX_VMMAIN_ARGS + 1) * sizeof(int);
 
+	*(int *)&image[ programStack + 56] = args[12];
+	*(int *)&image[ programStack + 52] = args[11];
+	*(int *)&image[ programStack + 48] = args[10];
 	*(int *)&image[ programStack + 44] = args[9];
 	*(int *)&image[ programStack + 40] = args[8];
 	*(int *)&image[ programStack + 36] = args[7];
@@ -1222,7 +1225,7 @@ int	VM_CallCompiled( vm_t *vm, int *args ) {
 	if ( opStack != &stack[1] ) {
 		Com_Error( ERR_DROP, "opStack corrupted in compiled code" );
 	}
-	if ( programStack != stackOnEntry - 48 ) {
+	if ( programStack != stackOnEntry - (MAX_VMMAIN_ARGS + 1) * sizeof(int) ) {
 		Com_Error( ERR_DROP, "programStack corrupted in compiled code" );
 	}
 

@@ -351,8 +351,12 @@ int	VM_CallInterpreted( vm_t *vm, int *args ) {
 	opStack = stack;
 	programCounter = 0;
 
-	programStack -= 48;
+	// Reserve the command plus all twelve vmMain arguments, not just ten.
+	programStack -= (MAX_VMMAIN_ARGS + 1) * sizeof(int);
 
+	*(int *)&image[ programStack + 56] = args[12];
+	*(int *)&image[ programStack + 52] = args[11];
+	*(int *)&image[ programStack + 48] = args[10];
 	*(int *)&image[ programStack + 44] = args[9];
 	*(int *)&image[ programStack + 40] = args[8];
 	*(int *)&image[ programStack + 36] = args[7];
