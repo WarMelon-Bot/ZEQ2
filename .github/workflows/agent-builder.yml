@@ -42,13 +42,13 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@://github.com"
 
-      - name: Run Autonomous Agent
+      -       - name: Run Autonomous Agent
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GEMINI_CLI_TRUST_WORKSPACE: "true"
         run: |
-          gemini --skip-trust --yolo -p "Read the repository files and follow these instructions.
+          gemini -m gemini-2.5-flash --skip-trust --yolo -p "Read the repository files and follow these instructions.
           Original Issue: ${{ github.event.issue.body }}
           Latest Comment / Manual Task: ${{ github.event.inputs.task || github.event.comment.body }}
           Build any CLI or build scripts needed, compile and run the source code, inspect all compiler or runtime errors, fix them, and verify the build succeeds cleanly. Finally, create a new git branch, commit your changes, push the branch, and open a Pull Request using the gh CLI."
