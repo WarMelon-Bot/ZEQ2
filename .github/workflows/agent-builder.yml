@@ -1,4 +1,4 @@
-name: Autonomous Build & Fix Agent
+name: Autonomous Build & Fix Agent (OpenCode)
 
 on:
   workflow_dispatch:
@@ -28,27 +28,20 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v5
-        with:
-          node-version: '24'
-          package-manager-cache: false
-
-      - name: Install Gemini CLI
-        run: npm install -g @google/gemini-cli
+      - name: Install OpenCode
+        run: curl -fsSL https://opencode.ai/install | bash
 
       - name: Configure Git Identity
         run: |
           git config --global user.name "github-actions[bot]"
-          git config --global user.email "41898282+github-actions[bot]@://github.com"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-      - name: Run Autonomous Agent
+      - name: Run OpenCode Agent
         env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GEMINI_CLI_TRUST_WORKSPACE: "true"
+          PATH: /home/runner/.opencode/bin:${{ env.PATH }}
         run: |
-          gemini -m gemini-3.8-flash --skip-trust --yolo -p "Read the repository files and follow these instructions.
+          opencode run "Read the repository files and follow these instructions.
           Original Issue: ${{ github.event.issue.body }}
           Latest Comment / Manual Task: ${{ github.event.inputs.task || github.event.comment.body }}
           Build any CLI or build scripts needed, compile and run the source code, inspect all compiler or runtime errors, fix them, and verify the build succeeds cleanly. Finally, create a new git branch, commit your changes, push the branch, and open a Pull Request using the gh CLI."
