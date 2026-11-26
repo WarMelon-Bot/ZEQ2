@@ -97,6 +97,7 @@ typedef struct {
 } cg_userWeapon_t;
 
 cg_userWeapon_t *CG_FindUserWeaponGraphics( int clientNum, int index );
+void CG_ClearUserWeaponGraphics( int clientNum );
 void CG_CopyUserWeaponGraphics( int from, int to );
 
 

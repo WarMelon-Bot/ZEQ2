@@ -70,6 +70,7 @@ Run tests with `./build.sh test` or invoke individually:
 - `./build.sh chat-message-test` — Run client chat/message hardening regression tests
 - `./build.sh string-test` — Run Com_sprintf truncation/stack-safety regression tests
 - `./build.sh network-safety-test` — Run untrusted network message parser regression tests
+- `./build.sh parse-io-test` — Sanitizer-backed regression tests for strict script number parsing and safe filesystem suffix matching
 - `./build.sh connect-userinfo-test` — Sanitizer test for oversized connect userinfo packets
 
 **Smoke Tests:**
@@ -79,7 +80,7 @@ Run tests with `./build.sh test` or invoke individually:
 - `./build.sh vulkan-smoke-test` — Smoke-test the Vulkan client under Xvfb (lavapipe); verify Vulkan backend initialized and 8 stencil bits; verify no shader/pipeline creation failures. Runs both single-threaded and threaded renderer paths.
 
 **Integration Test:**
-- `./build.sh integration-test` — Connect a client to a real server and exercise movement, combat, chat, and console actions. Validates the full connect → enter game → act → chat → disconnect cycle.
+- `./build.sh integration-test` — Connect a client to a real server and exercise movement, combat, chat, and console actions. Validates the full connect → enter game → act → chat → disconnect cycle; ignores only the one-time startup hitch before the client enters the game.
 
 ### Test Suites in GitHub Actions
 The `.github/workflows/ci.yml` workflow runs:

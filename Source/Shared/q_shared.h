@@ -737,6 +737,13 @@ int Q_isalpha( int c );
 qboolean Q_isanumber( const char *s );
 qboolean Q_isintegral( float f );
 
+// Strict decimal converters for untrusted script data.  Unlike atof/strtol
+// these reject trailing text and values outside the target type's range, and
+// they work in both native modules and the QVM.
+qboolean Q_ParseInteger( const char *s, int *out );
+qboolean Q_ParseFloat( const char *s, float *out );
+qboolean Q_EndsWithIgnoreCase( const char *s, size_t len, const char *suffix );
+
 // portable case insensitive compare
 int		Q_stricmp (const char *s1, const char *s2);
 int		Q_strncmp (const char *s1, const char *s2, int n);

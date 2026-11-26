@@ -21,6 +21,133 @@ typedef struct {
 static weapPhysCacheEntry_t	weapPhysCache[WEAPPHYS_CACHE_ENTRIES];
 static int					weapPhysCacheNext;
 
+/*
+ * Script files can be supplied through a player's model/skin selection.  Clamp
+ * every gameplay value before it reaches combat code so a malformed file
+ * cannot wrap damage arithmetic, create infinite-range projectiles or produce
+ * NaN/Inf velocities.  The limits are deliberately much larger than any
+ * shipped weapon while staying far below integer overflow territory.
+ */
+#define WEAPPHYS_INT_LIMIT		100000
+#define WEAPPHYS_FLOAT_LIMIT	100000.0f
+
+static int G_weapPhys_ClampInt( int value ) {
+	if ( value > WEAPPHYS_INT_LIMIT ) {
+		return WEAPPHYS_INT_LIMIT;
+	}
+	if ( value < -WEAPPHYS_INT_LIMIT ) {
+		return -WEAPPHYS_INT_LIMIT;
+	}
+	return value;
+}
+
+static float G_weapPhys_ClampFloat( float value ) {
+	if ( !( value >= -WEAPPHYS_FLOAT_LIMIT && value <= WEAPPHYS_FLOAT_LIMIT ) ) {
+		return 0.0f;
+	}
+	return value;
+}
+
+#define CLAMP_INT( field ) g_weapPhysBuffer.field = G_weapPhys_ClampInt( g_weapPhysBuffer.field )
+#define CLAMP_BOOL( field ) g_weapPhysBuffer.field = ( g_weapPhysBuffer.field ? 1 : 0 )
+#define CLAMP_FLOAT( field ) g_weapPhysBuffer.field = G_weapPhys_ClampFloat( g_weapPhysBuffer.field )
+
+static void G_weapPhys_SanitizeBuffer( void ) {
+	CLAMP_BOOL( canStruggle );
+	CLAMP_BOOL( canStruggleFeed );
+	CLAMP_BOOL( isBlockable );
+	CLAMP_BOOL( isSwattable );
+
+	if ( g_weapPhysBuffer.general_bitflags < 0 ) {
+		g_weapPhysBuffer.general_bitflags = 0;
+	}
+
+	CLAMP_INT( homing_range );
+	CLAMP_INT( homing_FOV );
+
+	CLAMP_INT( restrict_movement );
+	CLAMP_INT( restrict_zanzoken );
+	CLAMP_INT( restrict_dash );
+	CLAMP_INT( restrict_walk );
+	CLAMP_INT( restrict_jump );
+	CLAMP_INT( restrict_boost );
+	CLAMP_INT( restrict_alter );
+	CLAMP_INT( restrict_soar );
+	CLAMP_INT( restrict_attack );
+	CLAMP_INT( restrict_block );
+
+	CLAMP_INT( require_maximum );
+	CLAMP_INT( require_minPowerLevel );
+	CLAMP_INT( require_maxPowerLevel );
+	CLAMP_INT( require_minHealth );
+	CLAMP_INT( require_maxHealth );
+	CLAMP_INT( require_minFatigue );
+	CLAMP_INT( require_maxFatigue );
+	CLAMP_INT( require_minTier );
+	CLAMP_INT( require_maxTier );
+	CLAMP_INT( require_minTotalTier );
+	CLAMP_INT( require_maxTotalTier );
+	CLAMP_BOOL( require_ground );
+	CLAMP_BOOL( require_flight );
+	CLAMP_BOOL( require_water );
+
+	CLAMP_INT( costs_powerLevel );
+	CLAMP_INT( costs_maximum );
+	CLAMP_INT( costs_health );
+	CLAMP_INT( costs_fatigue );
+	CLAMP_INT( costs_chargeTime );
+	CLAMP_INT( costs_chargeReady );
+	CLAMP_INT( costs_cooldownTime );
+
+	CLAMP_INT( damage_damage );
+	CLAMP_INT( damage_impede );
+	CLAMP_INT( damage_burn );
+	CLAMP_INT( damage_radius );
+	CLAMP_INT( damage_radiusDuration );
+	CLAMP_INT( damage_multiplier );
+	CLAMP_INT( damage_radiusMultiplier );
+	CLAMP_INT( damage_playerHitType );
+	CLAMP_INT( damage_groundHitType );
+	CLAMP_INT( damage_stunTime );
+	CLAMP_INT( damage_freezeTime );
+	CLAMP_BOOL( damage_ignoreDefense );
+	CLAMP_BOOL( damage_piercing );
+	CLAMP_BOOL( damage_continuous );
+	CLAMP_BOOL( damage_lethal );
+	CLAMP_BOOL( damage_planetary );
+	CLAMP_INT( damage_extraKnockback );
+
+	CLAMP_FLOAT( physics_speed );
+	CLAMP_FLOAT( physics_acceleration );
+	CLAMP_FLOAT( physics_gravity );
+	CLAMP_INT( physics_radius );
+	CLAMP_INT( physics_radiusMultiplier );
+	CLAMP_INT( physics_range_min );
+	CLAMP_INT( physics_range_max );
+	CLAMP_INT( physics_lifetime );
+	CLAMP_FLOAT( physics_bounceFrac );
+	CLAMP_INT( physics_maxBounces );
+	CLAMP_BOOL( physics_swat );
+	CLAMP_BOOL( physics_drain );
+	CLAMP_BOOL( physics_blind );
+
+	CLAMP_INT( firing_angleW_min );
+	CLAMP_INT( firing_angleW_max );
+	CLAMP_INT( firing_angleH_min );
+	CLAMP_INT( firing_angleH_max );
+	CLAMP_INT( firing_offsetW_max );
+	CLAMP_INT( firing_offsetW_min );
+	CLAMP_INT( firing_offsetH_max );
+	CLAMP_INT( firing_offsetH_min );
+	CLAMP_BOOL( firing_offsetWFlip );
+	CLAMP_BOOL( firing_offsetHFlip );
+	CLAMP_INT( firing_nrShots );
+}
+
+#undef CLAMP_INT
+#undef CLAMP_BOOL
+#undef CLAMP_FLOAT
+
 void G_ClearWeapPhysCache( void ) {
 	memset( weapPhysCache, 0, sizeof( weapPhysCache ) );
 	weapPhysCacheNext = 0;
@@ -39,6 +166,12 @@ the process.
 void G_weapPhys_StoreBuffer(int clientNum, int weaponNum) {
 	g_userWeapon_t				*dest;
 	g_userWeaponParseBuffer_t	*src;
+
+	if ( clientNum < 0 || clientNum >= MAX_CLIENTS ) {
+		return;
+	}
+
+	G_weapPhys_SanitizeBuffer();
 
 	src = &g_weapPhysBuffer;
 	dest = G_FindUserWeaponData( clientNum, weaponNum + 1);
@@ -1898,9 +2031,9 @@ static qboolean G_weapPhys_PreParseDefinitions( g_weapPhysParser_t *parser ) {
 	qboolean				hasSuper;
 	char					supername[MAX_TOKENSTRING_LENGTH];
 	char					refname[MAX_TOKENSTRING_LENGTH];
-
-
 	int						blockCount;
+
+	supername[0] = '\0';
 
 	scanner = &parser->scanner;
 	token = &parser->token;
@@ -2272,6 +2405,7 @@ qboolean G_weapPhys_ParseDefinition( g_weapPhysParser_t *parser, char* refname, 
 				G_Printf("Inheriting superclass '%s'\n", parser->definitionRef[i].supername );
 			}
 			if ( !G_weapPhys_ParseDefinition( parser, parser->definitionRef[i].supername, &lastAccessLvl ) ) {
+				G_weapPhys_DecreaseRecursionDepth();
 				return qfalse;
 			}
 			
@@ -2328,6 +2462,7 @@ qboolean G_weapPhys_ParseDefinition( g_weapPhysParser_t *parser, char* refname, 
 		}		
 
 		if ( !G_weapPhys_ParseRemoteDefinition( parser->importRef[i].filename, parser->importRef[i].defname ) ) {
+			G_weapPhys_DecreaseRecursionDepth();
 			return qfalse;
 		}
 
@@ -2360,8 +2495,8 @@ static qboolean G_weapPhys_ParseUncached( char *filename, int clientNum ) {
 
 	// Clear the weapons here, so we are never stuck with 'ghost' weapons
 	// if an error occurs in the parse.
+	G_ClearUserWeaponData( clientNum );
 	weaponMask = G_FindUserWeaponMask( clientNum );
-	*weaponMask = 0;
 	
 	// Initialize the scanner by loading the file.  Do not scan an unloaded
 	// file: the scanner position is NULL after a load failure, which crashes
@@ -2474,6 +2609,10 @@ qboolean G_weapPhys_Parse( char *filename, int clientNum ) {
 	int *weaponMask;
 	qboolean parsedOk;
 
+	if ( clientNum < 0 || clientNum >= MAX_CLIENTS || !filename ) {
+		return qfalse;
+	}
+
 	weaponMask = G_FindUserWeaponMask( clientNum );
 
 	for ( i = 0; i < WEAPPHYS_CACHE_ENTRIES; i++ ) {
@@ -2490,6 +2629,11 @@ qboolean G_weapPhys_Parse( char *filename, int clientNum ) {
 		Q_strncpyz( entry->filename, filename, sizeof( entry->filename ) );
 
 		parsedOk = G_weapPhys_ParseUncached( filename, clientNum );
+		if ( !parsedOk ) {
+			// Never cache a partially parsed file or expose its weapons.
+			G_ClearUserWeaponData( clientNum );
+			return qfalse;
+		}
 		entry->parsedOk = parsedOk;
 		entry->weaponMask = *weaponMask;
 		for ( i = 0; i < ALTSPAWN_OFFSET + MAX_PLAYERWEAPONS; i++ ) {

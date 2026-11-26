@@ -151,5 +151,6 @@ g_userWeapon_t *G_FindUserWeaponData( int clientNum, int weaponNum );
 g_userWeapon_t *G_FindUserWeaponSpawnData( int clientNum, int weaponNum );
 g_userWeapon_t *G_FindUserAltWeaponData( int clientNum, int weaponNum );
 g_userWeapon_t *G_FindUserAltWeaponSpawnData( int clientNum, int weaponNum );
+void G_ClearUserWeaponData( int clientNum );
 void G_LinkUserWeaponData( playerState_t *ps );
 int *G_FindUserWeaponMask( int clientNum );

@@ -1495,6 +1495,7 @@ void CG_Init( int serverMessageNum, int serverCommandSequence, int clientNum ) {
 	memset( &cg, 0, sizeof( cg ) );
 	memset( cg_entities, 0, sizeof(cg_entities) );
 	memset( cg_weapons, 0, sizeof(cg_weapons) );
+	CG_ClearWeapGfxCache();
 
 	// The engine validates this, but keep the cgame side safe when a demo
 	// or a direct CG_INIT caller supplies a bad value.

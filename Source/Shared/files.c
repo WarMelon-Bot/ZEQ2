@@ -1037,6 +1037,9 @@ int FS_FOpenFileRead( const char *filename, fileHandle_t *file, qboolean uniqueF
 	}
 
 	if ( file == NULL ) {
+		if ( !filename || !*filename ) {
+			return qfalse;
+		}
 		// just wants to see if file is there
 		for ( search = fs_searchpaths ; search ; search = search->next ) {
 			//
@@ -1122,14 +1125,14 @@ int FS_FOpenFileRead( const char *filename, fileHandle_t *file, qboolean uniqueF
 					// from every pk3 file.. 
 					l = strlen( filename );
 					if ( !(pak->referenced & FS_GENERAL_REF)) {
-						if ( Q_stricmp(filename + l - 7, ".shader") != 0 &&
-							Q_stricmp(filename + l - 4, ".txt") != 0 &&
-							Q_stricmp(filename + l - 4, ".cfg") != 0 &&
-							Q_stricmp(filename + l - 7, ".config") != 0 &&
+						if ( !Q_EndsWithIgnoreCase( filename, l, ".shader" ) &&
+							!Q_EndsWithIgnoreCase( filename, l, ".txt" ) &&
+							!Q_EndsWithIgnoreCase( filename, l, ".cfg" ) &&
+							!Q_EndsWithIgnoreCase( filename, l, ".config" ) &&
 							strstr(filename, "levelshots") == NULL &&
-							Q_stricmp(filename + l - 4, ".bot") != 0 &&
-							Q_stricmp(filename + l - 6, ".arena") != 0 &&
-							Q_stricmp(filename + l - 5, ".menu") != 0) {
+							!Q_EndsWithIgnoreCase( filename, l, ".bot" ) &&
+							!Q_EndsWithIgnoreCase( filename, l, ".arena" ) &&
+							!Q_EndsWithIgnoreCase( filename, l, ".menu" ) ) {
 							pak->referenced |= FS_GENERAL_REF;
 						}
 					}
@@ -1189,11 +1192,11 @@ int FS_FOpenFileRead( const char *filename, fileHandle_t *file, qboolean uniqueF
 			// turned out I used FS_FileExists instead
 			if ( fs_numServerPaks ) {
 
-				if ( Q_stricmp( filename + l - 4, ".cfg" )		// for config files
-					&& Q_stricmp( filename + l - 5, ".menu" )	// menu files
-					&& Q_stricmp( filename + l - 5, ".game" )	// menu files
-					&& Q_stricmp( filename + l - strlen(demoExt), demoExt )	// menu files
-					&& Q_stricmp( filename + l - 4, ".dat" ) ) {	// for journal files
+				if ( !Q_EndsWithIgnoreCase( filename, l, ".cfg" )		// config files
+					&& !Q_EndsWithIgnoreCase( filename, l, ".menu" )	// menu files
+					&& !Q_EndsWithIgnoreCase( filename, l, ".game" )	// game files
+					&& !Q_EndsWithIgnoreCase( filename, l, demoExt )	// demos
+					&& !Q_EndsWithIgnoreCase( filename, l, ".dat" ) ) {	// journal files
 					continue;
 				}
 			}
@@ -1246,7 +1249,7 @@ int FS_Read2( void *buffer, int len, fileHandle_t f ) {
 		Com_Error( ERR_FATAL, "Filesystem call made without initialization\n" );
 	}
 
-	if ( !f ) {
+	if ( !f || len <= 0 || !buffer ) {
 		return 0;
 	}
 	if (fsh[f].streamed) {
@@ -1270,7 +1273,7 @@ int FS_Read( void *buffer, int len, fileHandle_t f ) {
 		Com_Error( ERR_FATAL, "Filesystem call made without initialization\n" );
 	}
 
-	if ( !f ) {
+	if ( !f || len <= 0 || !buffer ) {
 		return 0;
 	}
 
@@ -1324,7 +1327,7 @@ int FS_Write( const void *buffer, int len, fileHandle_t h ) {
 		Com_Error( ERR_FATAL, "Filesystem call made without initialization\n" );
 	}
 
-	if ( !h ) {
+	if ( !h || len <= 0 || !buffer ) {
 		return 0;
 	}
 
@@ -1531,6 +1534,7 @@ int FS_ReadFile( const char *qpath, void **buffer ) {
 	byte*			buf;
 	qboolean		isConfig;
 	int				len;
+	int				r;
 
 	if ( !fs_searchpaths ) {
 		Com_Error( ERR_FATAL, "Filesystem call made without initialization\n" );
@@ -1567,12 +1571,22 @@ int FS_ReadFile( const char *qpath, void **buffer ) {
 				return len;
 			}
 
+			if ( len < 0 || len >= INT_MAX ) {
+				if ( buffer != NULL ) {
+					*buffer = NULL;
+				}
+				return -1;
+			}
+
 			buf = Hunk_AllocateTempMemory(len+1);
 			*buffer = buf;
 
 			r = FS_Read( buf, len, com_journalDataFile );
 			if ( r != len ) {
-				Com_Error( ERR_FATAL, "Read from journalDataFile failed" );
+				Com_Printf( "FS_ReadFile: short read from journal for %s\n", qpath );
+				Hunk_FreeTempMemory( buf );
+				*buffer = NULL;
+				return -1;
 			}
 
 			fs_loadCount++;
@@ -1603,6 +1617,14 @@ int FS_ReadFile( const char *qpath, void **buffer ) {
 		return -1;
 	}
 	
+	if ( len < 0 || len >= INT_MAX ) {
+		FS_FCloseFile( h );
+		if ( buffer ) {
+			*buffer = NULL;
+		}
+		return -1;
+	}
+
 	if ( !buffer ) {
 		if ( isConfig && com_journal && com_journal->integer == 1 ) {
 			Com_DPrintf( "Writing len for %s to journal file.\n", qpath );
@@ -1619,7 +1641,14 @@ int FS_ReadFile( const char *qpath, void **buffer ) {
 	buf = Hunk_AllocateTempMemory(len+1);
 	*buffer = buf;
 
-	FS_Read (buf, len, h);
+	r = FS_Read( buf, len, h );
+	if ( r != len ) {
+		Com_Printf( "FS_ReadFile: short read for %s\n", qpath );
+		FS_FCloseFile( h );
+		FS_FreeFile( buf );
+		*buffer = NULL;
+		return -1;
+	}
 
 	// guarantee that it will have a trailing 0 for string operations
 	buf[len] = 0;

@@ -26,6 +26,13 @@ cg_userWeapon_t *CG_FindUserWeaponGraphics( int clientNum, int index ) {
 	return &weaponGraphicsDatabase[clientNum][index - 1];
 }
 
+void CG_ClearUserWeaponGraphics( int clientNum ) {
+	if ( clientNum < 0 || clientNum >= MAX_CLIENTS ) {
+		return;
+	}
+	memset( weaponGraphicsDatabase[clientNum], 0, sizeof( weaponGraphicsDatabase[clientNum] ) );
+}
+
 void CG_CopyUserWeaponGraphics( int from, int to ) {
 	if ( from < 0 || from >= MAX_CLIENTS || to < 0 || to >= MAX_CLIENTS ) {
 		return;

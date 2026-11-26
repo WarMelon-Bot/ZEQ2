@@ -2,6 +2,8 @@
 
 static int					weaponPhysicsMasks[MAX_CLIENTS];
 static g_userWeapon_t		weaponPhysicsDatabase[MAX_CLIENTS][ALTSPAWN_OFFSET + MAX_PLAYERWEAPONS];
+
+#define VALID_WEAPON( weaponNum ) ( (weaponNum) >= 1 && (weaponNum) <= ALTSPAWN_OFFSET + MAX_PLAYERWEAPONS )
 							// NOTE: SPAWN_OFFSET is the upper bound because it is the first
 							//       element after the alternate fires!
 
@@ -11,6 +13,12 @@ G_FindUserWeaponMask
 ======================
 */
 int *G_FindUserWeaponMask( int clientNum ) {
+	static int emptyMask;
+
+	if ( clientNum < 0 || clientNum >= MAX_CLIENTS ) {
+		emptyMask = 0;
+		return &emptyMask;
+	}
 	return &weaponPhysicsMasks[clientNum];
 }
 
@@ -20,7 +28,26 @@ G_FindUserWeaponData
 ======================
 */
 g_userWeapon_t *G_FindUserWeaponData( int clientNum, int weaponNum ) {
+	static g_userWeapon_t emptyWeapon;
+
+	if ( clientNum < 0 || clientNum >= MAX_CLIENTS || !VALID_WEAPON( weaponNum ) ) {
+		memset( &emptyWeapon, 0, sizeof( emptyWeapon ) );
+		return &emptyWeapon;
+	}
 	return &weaponPhysicsDatabase[clientNum][weaponNum - 1];
+}
+
+/*
+==================
+G_ClearUserWeaponData
+==================
+*/
+void G_ClearUserWeaponData( int clientNum ) {
+	if ( clientNum < 0 || clientNum >= MAX_CLIENTS ) {
+		return;
+	}
+	weaponPhysicsMasks[clientNum] = 0;
+	memset( weaponPhysicsDatabase[clientNum], 0, sizeof( weaponPhysicsDatabase[clientNum] ) );
 }
 
 /*
@@ -29,6 +56,13 @@ G_FindUserWeaponSpawnData
 ===========================
 */
 g_userWeapon_t *G_FindUserWeaponSpawnData( int clientNum, int weaponNum ) {
+	static g_userWeapon_t emptyWeapon;
+
+	if ( clientNum < 0 || clientNum >= MAX_CLIENTS ||
+	     weaponNum < 1 || weaponNum + SPAWN_OFFSET - 1 > ALTSPAWN_OFFSET + MAX_PLAYERWEAPONS ) {
+		memset( &emptyWeapon, 0, sizeof( emptyWeapon ) );
+		return &emptyWeapon;
+	}
 	return &weaponPhysicsDatabase[clientNum][weaponNum - 1 + SPAWN_OFFSET];
 }
 
@@ -38,6 +72,13 @@ G_FindUserAltWeaponData
 =========================
 */
 g_userWeapon_t *G_FindUserAltWeaponData( int clientNum, int weaponNum ) {
+	static g_userWeapon_t emptyWeapon;
+
+	if ( clientNum < 0 || clientNum >= MAX_CLIENTS ||
+	     weaponNum < 1 || weaponNum + ALTWEAPON_OFFSET - 1 > ALTSPAWN_OFFSET + MAX_PLAYERWEAPONS ) {
+		memset( &emptyWeapon, 0, sizeof( emptyWeapon ) );
+		return &emptyWeapon;
+	}
 	return &weaponPhysicsDatabase[clientNum][weaponNum - 1 + ALTWEAPON_OFFSET];
 }
 
@@ -47,6 +88,13 @@ G_FindUserAltWeaponSpawnData
 ==============================
 */
 g_userWeapon_t *G_FindUserAltWeaponSpawnData( int clientNum, int weaponNum ) {
+	static g_userWeapon_t emptyWeapon;
+
+	if ( clientNum < 0 || clientNum >= MAX_CLIENTS ||
+	     weaponNum < 1 || weaponNum + ALTSPAWN_OFFSET - 1 > ALTSPAWN_OFFSET + MAX_PLAYERWEAPONS ) {
+		memset( &emptyWeapon, 0, sizeof( emptyWeapon ) );
+		return &emptyWeapon;
+	}
 	return &weaponPhysicsDatabase[clientNum][weaponNum - 1 + ALTSPAWN_OFFSET];
 }
 

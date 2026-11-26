@@ -91,6 +91,10 @@ void G_weapPhys_ErrorHandle( g_weapPhysError_t errorNr, g_weapPhysScanner_t *sca
 		G_Printf( "%s(%i): Symbol exceeds limit of %i characters.\n", file, line, MAX_TOKENSTRING_LENGTH );
 		break;
 
+	case ERROR_NUMBER_INVALID:
+		G_Printf( "%s(%i): Invalid or out-of-range number '%s'.\n", file, line, string1 ? string1 : "" );
+		break;
+
 	case ERROR_UNKNOWN_SYMBOL:
 		G_Printf( "%s(%i): Unknown symbol '%s' encountered.\n", file, line, string1 );
 		break;
@@ -332,15 +336,26 @@ qboolean G_weapPhys_NextSym( g_weapPhysScanner_t *scanner, g_weapPhysToken_t *to
 
 		} while ( ( *scanner->pos >= '0' ) && ( *scanner->pos <= '9' ) );
 
+		token->stringval[len] = '\0';
+
 		if ( dot ) {
+			if ( !Q_ParseFloat( token->stringval, &token->floatval ) ) {
+				G_weapPhys_ErrorHandle( ERROR_NUMBER_INVALID, scanner, token->stringval, NULL );
+				return qfalse;
+			}
+			// Float tokens are only consumed through floatval.  Leaving
+			// intval at zero avoids the old ceil(atof()) conversion, which
+			// was undefined behaviour for very large numbers.
+			token->intval = 0;
 			token->tokenSym = TOKEN_FLOAT;
 		} else {
+			if ( !Q_ParseInteger( token->stringval, &token->intval ) ) {
+				G_weapPhys_ErrorHandle( ERROR_NUMBER_INVALID, scanner, token->stringval, NULL );
+				return qfalse;
+			}
+			token->floatval = (float)token->intval;
 			token->tokenSym = TOKEN_INTEGER;
 		}
-
-		token->stringval[len] = '\0';
-		token->floatval = atof( token->stringval );
-		token->intval = ceil( token->floatval );
 
 		return qtrue;
 	}
@@ -433,7 +448,7 @@ qboolean G_weapPhys_NextSym( g_weapPhysScanner_t *scanner, g_weapPhysToken_t *to
 		len = 0;
 		while ( ((*scanner->pos >= 'a') && (*scanner->pos <= 'z')) ||
 				((*scanner->pos >= 'A') && (*scanner->pos <= 'Z')) ) { // <-- Make sure we only have words
-			if ( len < MAX_TOKENSTRING_LENGTH ) {
+			if ( len < MAX_TOKENSTRING_LENGTH - 1 ) {
 				token->stringval[len] = *scanner->pos;
 				len++;
 			} else {
@@ -534,25 +549,33 @@ qboolean G_weapPhys_LoadFile( g_weapPhysScanner_t *scanner, char *filename ) {
 	int			len;
 	qhandle_t	file;
 
+	scanner->pos = NULL;
+	scanner->line = 0;
+	scanner->filename[0] = '\0';
+	if ( !filename || !*filename ) {
+		G_weapPhys_ErrorHandle( ERROR_FILE_NOTFOUND, scanner, NULL, NULL );
+		return qfalse;
+	}
 	Q_strncpyz( scanner->filename, filename, sizeof(scanner->filename) );
 
-	// Grab filehandle
+	// A failed open must never leave a usable scanner: on native builds a
+	// stale or NULL position was dereferenced by the first NextSym call.
+	file = 0;
 	len = trap_FS_FOpenFile( filename, &file, FS_READ );
-
-	// File must exist, else report error
-	if ( !file ) {
+	if ( len < 0 || file <= 0 ) {
 		G_weapPhys_ErrorHandle( ERROR_FILE_NOTFOUND, scanner, filename, NULL );
 		return qfalse;
 	}
 
 	// File must not be too big, else report error
-	if ( len >= ( sizeof(char) * MAX_SCRIPT_LENGTH - 1 ) ) {
+	if ( len >= MAX_SCRIPT_LENGTH ) {
 		G_weapPhys_ErrorHandle( ERROR_FILE_TOOBIG, scanner, NULL, NULL );
 		trap_FS_FCloseFile( file );
 		return qfalse;
 	}
 
-	// Read file
+	// The VM trap has a void return, so the engine's short-read diagnostics
+	// are the only signal here.  Terminate unconditionally before scanning.
 	trap_FS_Read( scanner->script, len, file );
 	trap_FS_FCloseFile( file );
 
@@ -560,7 +583,6 @@ qboolean G_weapPhys_LoadFile( g_weapPhysScanner_t *scanner, char *filename ) {
 	scanner->script[len] = '\0';
 
 	// Set starting position
-	scanner->line = 0;
 	scanner->pos = scanner->script;
 
 		

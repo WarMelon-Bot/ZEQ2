@@ -11,6 +11,29 @@ static cg_userWeaponParseBuffer_t	cg_weapGfxBuffer;
 	//		  > 32k locals errors in the VM-bytecode compiler?
 
 /*
+ * Graphics scripts are static data, but CG_NewClientInfo re-runs the parser
+ * whenever a client changes model or skin.  Cache the resulting (already
+ * registered) handles by filename for the lifetime of the map so those
+ * changes do not re-register every model, skin, shader and sound.
+ */
+#define WEAPGFX_CACHE_ENTRIES 32
+
+typedef struct {
+	char	filename[MAX_QPATH];
+	qboolean valid;
+	qboolean parsedOk;
+	cg_userWeapon_t weapons[ALTSPAWN_OFFSET + MAX_PLAYERWEAPONS];
+} weapGfxCacheEntry_t;
+
+static weapGfxCacheEntry_t	weapGfxCache[WEAPGFX_CACHE_ENTRIES];
+static int					weapGfxCacheNext;
+
+void CG_ClearWeapGfxCache( void ) {
+	memset( weapGfxCache, 0, sizeof( weapGfxCache ) );
+	weapGfxCacheNext = 0;
+}
+
+/*
 =======================
 CG_weapGfx_StoreBuffer
 =======================
@@ -22,6 +45,10 @@ void CG_weapGfx_StoreBuffer(int clientNum, int weaponNum) {
 	cg_userWeapon_t				*dest;
 	cg_userWeaponParseBuffer_t	*src;
 	int							i;
+
+	if ( clientNum < 0 || clientNum >= MAX_CLIENTS ) {
+		return;
+	}
 
 	src = &cg_weapGfxBuffer;
 	dest = CG_FindUserWeaponGraphics( clientNum, weaponNum + 1);
@@ -2259,9 +2286,9 @@ static qboolean CG_weapGfx_PreParseDefinitions( cg_weapGfxParser_t *parser ) {
 	qboolean				hasSuper;
 	char					supername[MAX_TOKENSTRING_LENGTH];
 	char					refname[MAX_TOKENSTRING_LENGTH];
-
-
 	int						blockCount;
+
+	supername[0] = '\0';
 
 	scanner = &parser->scanner;
 	token = &parser->token;
@@ -2632,6 +2659,7 @@ qboolean CG_weapGfx_ParseDefinition( cg_weapGfxParser_t *parser, char* refname, 
 				CG_Printf("Inheriting superclass '%s'\n", parser->definitionRef[i].supername );
 			}
 			if ( !CG_weapGfx_ParseDefinition( parser, parser->definitionRef[i].supername, &lastAccessLvl ) ) {
+				CG_weapGfx_DecreaseRecursionDepth();
 				return qfalse;
 			}
 			
@@ -2688,6 +2716,7 @@ qboolean CG_weapGfx_ParseDefinition( cg_weapGfxParser_t *parser, char* refname, 
 		}		
 
 		if ( !CG_weapGfx_ParseRemoteDefinition( parser->importRef[i].filename, parser->importRef[i].defname ) ) {
+			CG_weapGfx_DecreaseRecursionDepth();
 			return qfalse;
 		}
 
@@ -2705,11 +2734,14 @@ CG_weapGfx_Parse
 Main parsing function for a scriptfile.
 This is the parser's 'entrypoint',
 */
-qboolean CG_weapGfx_Parse( char *filename, int clientNum ) {
+static qboolean CG_weapGfx_ParseUncached( char *filename, int clientNum ) {
 	cg_weapGfxParser_t		parser;
 	cg_weapGfxScanner_t		*scanner;
 	cg_weapGfxToken_t		*token;
 	int						i;
+
+	// A failed parse must not leave graphics from a previous model behind.
+	CG_ClearUserWeaponGraphics( clientNum );
 
 	// Initialize the parser
 	memset( &parser, 0, sizeof(parser) );
@@ -2799,4 +2831,53 @@ qboolean CG_weapGfx_Parse( char *filename, int clientNum ) {
 	}
 
 	return qtrue;
+}
+
+/*
+==================
+CG_weapGfx_Parse
+==================
+Cached entry point.  Parsing a graphics script registers renderer handles;
+replaying it for every configstring change was both slow and unnecessary.
+*/
+qboolean CG_weapGfx_Parse( char *filename, int clientNum ) {
+	int i;
+	weapGfxCacheEntry_t *entry = NULL;
+	qboolean parsedOk;
+
+	if ( clientNum < 0 || clientNum >= MAX_CLIENTS || !filename ) {
+		return qfalse;
+	}
+
+	for ( i = 0; i < WEAPGFX_CACHE_ENTRIES; i++ ) {
+		if ( weapGfxCache[i].valid && !Q_stricmp( weapGfxCache[i].filename, filename ) ) {
+			entry = &weapGfxCache[i];
+			break;
+		}
+	}
+
+	if ( !entry ) {
+		entry = &weapGfxCache[weapGfxCacheNext];
+		weapGfxCacheNext = ( weapGfxCacheNext + 1 ) % WEAPGFX_CACHE_ENTRIES;
+		memset( entry, 0, sizeof( *entry ) );
+		Q_strncpyz( entry->filename, filename, sizeof( entry->filename ) );
+
+		parsedOk = CG_weapGfx_ParseUncached( filename, clientNum );
+		if ( !parsedOk ) {
+			CG_ClearUserWeaponGraphics( clientNum );
+			return qfalse;
+		}
+		entry->parsedOk = parsedOk;
+		for ( i = 0; i < ALTSPAWN_OFFSET + MAX_PLAYERWEAPONS; i++ ) {
+			cg_userWeapon_t *src = CG_FindUserWeaponGraphics( clientNum, i + 1 );
+			memcpy( &entry->weapons[i], src, sizeof( entry->weapons[i] ) );
+		}
+		entry->valid = qtrue;
+	}
+
+	for ( i = 0; i < ALTSPAWN_OFFSET + MAX_PLAYERWEAPONS; i++ ) {
+		cg_userWeapon_t *dest = CG_FindUserWeaponGraphics( clientNum, i + 1 );
+		memcpy( dest, &entry->weapons[i], sizeof( *dest ) );
+	}
+	return entry->parsedOk;
 }
