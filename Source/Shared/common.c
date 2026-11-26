@@ -834,11 +834,12 @@ static void Z_RemoveFree( memzone_t *zone, memblock_t *block ) {
 Z_ClearZone
 ========================
 */
-void Z_ClearZone( memzone_t *zone, int size ) {
+void Z_ClearZone( memzone_t *zone, size_t size ) {
 	memblock_t	*block;
 
-	if ( size <= (int)PAD( sizeof(memzone_t), ZONE_ALIGN ) ) {
-		Com_Error( ERR_FATAL, "Z_ClearZone: zone size %i is smaller than its header", size );
+	if ( size <= PAD( sizeof(memzone_t), ZONE_ALIGN ) ) {
+		Com_Error( ERR_FATAL, "Z_ClearZone: zone size %llu is smaller than its header",
+			(unsigned long long)size );
 	}
 
 	Com_Memset( zone, 0, sizeof( *zone ) );
@@ -1302,7 +1303,19 @@ Goals:
 // 64 bytes keeps allocations on a cache-line boundary for the renderer and
 // avoids the old practice of leaking the offset-adjusted allocation pointer.
 #define HUNK_ALIGN	64
+
+// The cvars are still parsed as int, but a 64-bit process can address far more
+// than 4 GiB.  Keep the conservative 32-bit ceilings there (where an int byte
+// count would wrap) and let full 64-bit builds use the whole cvar range.
+#if Q3_64BIT
+// Both arenas track totals and block sizes with size_t, so the cvars (which
+// are plain ints) are the only practical ceiling on a 64-bit process.
+#define MAX_COMHUNKMEGS	INT_MAX
+#define MAX_COMZONEMEGS	INT_MAX
+#else
 #define MAX_COMHUNKMEGS	4096	// guard against integer overflow / bad cvars
+#define MAX_COMZONEMEGS	1024
+#endif
 
 typedef struct {
 	int		magic;
@@ -1333,7 +1346,7 @@ static	byte	*s_hunkData = NULL;
 static	byte	*s_hunkRaw = NULL;		// unaligned pointer returned by malloc
 static	size_t	s_hunkTotal;
 
-static	int		s_zoneTotal;
+static	size_t		s_zoneTotal;
 static	int		s_smallZoneTotal;
 
 /*
@@ -1527,6 +1540,7 @@ void Com_InitSmallZoneMemory( void ) {
 void Com_InitZoneMemory( void ) {
 	cvar_t	*cv;
 	int megs;
+	size_t maxMegs;
 
 	// Please note: com_zoneMegs can only be set on the command line, and
 	// not in zeq2config.cfg or Com_StartupVariable, as they haven't been
@@ -1537,11 +1551,18 @@ void Com_InitZoneMemory( void ) {
 	// allocate the random block zone
 	cv = Cvar_Get( "com_zoneMegs", DEF_COMZONEMEGS_S, CVAR_LATCH | CVAR_ARCHIVE );
 
-	megs = cv->integer < DEF_COMZONEMEGS ? DEF_COMZONEMEGS : cv->integer;
-	if ( megs > 1024 ) {
-		megs = 1024;
+	// Leave room for the alignment padding when computing the largest arena
+	// representable in size_t; a full 64-bit build can go well past 1 GiB.
+	maxMegs = ( SIZE_MAX - ( ZONE_ALIGN - 1 ) ) / ( 1024u * 1024u );
+	if ( maxMegs > MAX_COMZONEMEGS ) {
+		maxMegs = MAX_COMZONEMEGS;
 	}
-	s_zoneTotal = megs * 1024 * 1024;
+	megs = cv->integer < DEF_COMZONEMEGS ? DEF_COMZONEMEGS : cv->integer;
+	if ( (size_t)megs > maxMegs ) {
+		Com_Printf( "com_zoneMegs clamped to %llu megs.\n", (unsigned long long)maxMegs );
+		megs = (int)maxMegs;
+	}
+	s_zoneTotal = (size_t)megs * 1024 * 1024;
 
 	if ( s_zoneRaw ) {
 		free( s_zoneRaw );
@@ -1549,7 +1570,8 @@ void Com_InitZoneMemory( void ) {
 	s_zoneRaw = malloc( s_zoneTotal + ZONE_ALIGN - 1 );
 	if ( !s_zoneRaw ) {
 		mainzone = NULL;
-		Com_Error( ERR_FATAL, "Zone data failed to allocate %i megs", s_zoneTotal / (1024*1024) );
+		Com_Error( ERR_FATAL, "Zone data failed to allocate %llu megs",
+			(unsigned long long)( s_zoneTotal / ( 1024 * 1024 ) ) );
 	}
 	mainzone = (memzone_t *)( ( (uintptr_t)s_zoneRaw + ZONE_ALIGN - 1 ) &
 		~(uintptr_t)( ZONE_ALIGN - 1 ) );

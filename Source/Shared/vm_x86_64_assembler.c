@@ -306,9 +306,12 @@ static const char* argtype2str(argtype_t t)
 
 /* ************************* */
 
+/* Signed-immediate range checks.  Values arrive as u64, including two's
+ * complement negatives, so converting through llabs() is undefined for large
+ * unsigned values (a common source of wrong encodings on 64-bit targets). */
 static inline int iss8(u64 v)
 {
-	return (llabs(v) <= 0x80); //llabs instead of labs required for __WIN64
+	return v <= 0x7f || v >= (u64)-0x80;
 }
 
 static inline int isu8(u64 v)
@@ -318,7 +321,7 @@ static inline int isu8(u64 v)
 
 static inline int iss16(u64 v)
 {
-	return (llabs(v) <= 0x8000);
+	return v <= 0x7fff || v >= (u64)-0x8000;
 }
 
 static inline int isu16(u64 v)
@@ -328,7 +331,7 @@ static inline int isu16(u64 v)
 
 static inline int iss32(u64 v)
 {
-	return (llabs(v) <= 0x80000000);
+	return v <= 0x7fffffff || v >= (u64)0xffffffff80000000ULL;
 }
 
 static inline int isu32(u64 v)

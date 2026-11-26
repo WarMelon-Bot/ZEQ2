@@ -33,6 +33,10 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include "qcommon.h"
 #include "unzip.h"
 
+#ifndef _WIN32
+#include <sys/types.h> // off_t for fseeko on 64-bit Unix
+#endif
+
 /*
 =============================================================================
 
@@ -250,9 +254,9 @@ typedef struct qfile_us {
 typedef struct {
 	qfile_ut	handleFiles;
 	qboolean	handleSync;
-	int			baseOffset;
-	int			fileSize;
-	int			zipFilePos;
+	intptr_t	baseOffset;
+	intptr_t	fileSize;
+	intptr_t	zipFilePos;
 	qboolean	zipFile;
 	qboolean	streamed;
 	char		name[MAX_ZPATH];
@@ -383,6 +387,31 @@ static FILE	*FS_FileForHandle( fileHandle_t f ) {
 	return fsh[f].handleFiles.file.o;
 }
 
+/*
+ * long is still 32 bits on Win64, and fs_searchpaths can contain files larger
+ * than INT_MAX on every 64-bit target.  Keep tell/seek internal to the
+ * filesystem so callers never see a wrapped file position.
+ */
+static intptr_t FS_TellFile( FILE *file ) {
+#if defined(_WIN32)
+	return (intptr_t)_ftelli64( file );
+#elif defined(__LP64__) || defined(_LP64)
+	return (intptr_t)ftello( file );
+#else
+	return (intptr_t)ftell( file );
+#endif
+}
+
+static int FS_SeekFile( FILE *file, intptr_t offset, int origin ) {
+#if defined(_WIN32)
+	return _fseeki64( file, (__int64)offset, origin );
+#elif defined(__LP64__) || defined(_LP64)
+	return fseeko( file, (off_t)offset, origin );
+#else
+	return fseek( file, (long)offset, origin );
+#endif
+}
+
 void	FS_ForceFlush( fileHandle_t f ) {
 	FILE *file;
 
@@ -399,16 +428,16 @@ it will return the size of the pak file, not the expected
 size of the file.
 ================
 */
-int FS_filelength( fileHandle_t f ) {
-	int		pos;
-	int		end;
+intptr_t FS_filelength( fileHandle_t f ) {
+	intptr_t	pos;
+	intptr_t	end;
 	FILE*	h;
 
 	h = FS_FileForHandle(f);
-	pos = ftell (h);
-	fseek (h, 0, SEEK_END);
-	end = ftell (h);
-	fseek (h, pos, SEEK_SET);
+	pos = FS_TellFile(h);
+	FS_SeekFile(h, 0, SEEK_END);
+	end = FS_TellFile(h);
+	FS_SeekFile(h, pos, SEEK_SET);
 
 	return end;
 }
@@ -998,6 +1027,7 @@ int FS_FOpenFileRead( const char *filename, fileHandle_t *file, qboolean uniqueF
 	long			hash;
 	FILE			*temp;
 	int				l;
+	intptr_t		length;
 	char demoExt[16];
 
 	hash = 0;
@@ -1135,7 +1165,14 @@ int FS_FOpenFileRead( const char *filename, fileHandle_t *file, qboolean uniqueF
 						Com_Printf( "FS_FOpenFileRead: %s (found in '%s')\n", 
 							filename, pak->pakFilename );
 					}
-					return pakFile->len;
+					length = (intptr_t)pakFile->len;
+					if ( length < 0 || length > INT_MAX ) {
+						Com_Printf( "FS_FOpenFileRead: %s is too large for the 32-bit file API\n", filename );
+						FS_FCloseFile( *file );
+						*file = 0;
+						return -1;
+					}
+					return (int)length;
 				}
 				pakFile = pakFile->next;
 			} while(pakFile != NULL);
@@ -1176,7 +1213,14 @@ int FS_FOpenFileRead( const char *filename, fileHandle_t *file, qboolean uniqueF
 					dir->path, dir->gamedir );
 			}
 
-			return FS_filelength (*file);
+			length = FS_filelength(*file);
+			if ( length < 0 || length > INT_MAX ) {
+				Com_Printf( "FS_FOpenFileRead: %s is too large for the 32-bit file API\n", filename );
+				FS_FCloseFile( *file );
+				*file = 0;
+				return -1;
+			}
+			return (int)length;
 		}		
 	}
 	
@@ -1334,7 +1378,7 @@ FS_Seek
 
 =================
 */
-int FS_Seek( fileHandle_t f, long offset, int origin ) {
+int FS_Seek( fileHandle_t f, intptr_t offset, int origin ) {
 	int		_origin;
 
 	if ( !fs_searchpaths ) {
@@ -1352,7 +1396,7 @@ int FS_Seek( fileHandle_t f, long offset, int origin ) {
 		//FIXME: this is incomplete and really, really
 		//crappy (but better than what was here before)
 		byte	buffer[PK3_SEEK_BUFFER_SIZE];
-		int		remainder = offset;
+		int64_t	remainder = offset;
 
 		if( offset < 0 || origin == FS_SEEK_END ) {
 			Com_Error( ERR_FATAL, "Negative offsets and FS_SEEK_END not implemented "
@@ -1371,8 +1415,10 @@ int FS_Seek( fileHandle_t f, long offset, int origin ) {
 					FS_Read( buffer, PK3_SEEK_BUFFER_SIZE, f );
 					remainder -= PK3_SEEK_BUFFER_SIZE;
 				}
-				FS_Read( buffer, remainder, f );
-				return offset;
+				FS_Read( buffer, (int)remainder, f );
+				// Match fseek(): zero on success.  The old code returned the
+				// offset, which wrapped for files larger than INT_MAX bytes.
+				return 0;
 				break;
 
 			default:
@@ -1399,7 +1445,7 @@ int FS_Seek( fileHandle_t f, long offset, int origin ) {
 			break;
 		}
 
-		return fseek( file, offset, _origin );
+		return FS_SeekFile( file, offset, _origin );
 	}
 }
 
@@ -1667,6 +1713,7 @@ static pack_t *FS_LoadZipFile(const char *zipfile, const char *basename)
 	unz_global_info gi;
 	char			filename_inzip[MAX_ZPATH];
 	unz_file_info	file_info;
+	uLong			entryPos;
 	int				i, len;
 	long			hash;
 	int				fs_numHeaderLongs;
@@ -1688,6 +1735,15 @@ static pack_t *FS_LoadZipFile(const char *zipfile, const char *basename)
 		err = unzGetCurrentFileInfo(uf, &file_info, filename_inzip, sizeof(filename_inzip), NULL, 0, NULL, 0);
 		if (err != UNZ_OK) {
 			break;
+		}
+		entryPos = unzGetOffset(uf);
+		// This ZIP reader stores offsets and sizes in 32-bit fields.  Reject
+		// ZIP64 markers and oversized members instead of silently wrapping.
+		if ( file_info.uncompressed_size == 0xffffffff || entryPos == 0xffffffff ||
+			file_info.uncompressed_size > INT_MAX || entryPos > INT_MAX ) {
+			Com_Printf( "FS_LoadZipFile: %s has a ZIP64 or >2 GiB member; unsupported\n", zipfile );
+			unzClose(uf);
+			return NULL;
 		}
 		len += strlen(filename_inzip) + 1;
 		unzGoToNextFile(uf);
@@ -3347,9 +3403,9 @@ int		FS_FOpenFileByMode( const char *qpath, fileHandle_t *f, fsMode_t mode ) {
 
 	if ( *f ) {
 		if (fsh[*f].zipFile == qtrue) {
-			fsh[*f].baseOffset = unztell(fsh[*f].handleFiles.file.z);
+			fsh[*f].baseOffset = (intptr_t)unztell(fsh[*f].handleFiles.file.z);
 		} else {
-			fsh[*f].baseOffset = ftell(fsh[*f].handleFiles.file.o);
+			fsh[*f].baseOffset = FS_TellFile(fsh[*f].handleFiles.file.o);
 		}
 		fsh[*f].fileSize = r;
 		fsh[*f].streamed = qfalse;
@@ -3363,12 +3419,12 @@ int		FS_FOpenFileByMode( const char *qpath, fileHandle_t *f, fsMode_t mode ) {
 	return r;
 }
 
-int		FS_FTell( fileHandle_t f ) {
-	int pos;
+intptr_t	FS_FTell( fileHandle_t f ) {
+	intptr_t pos;
 	if (fsh[f].zipFile == qtrue) {
-		pos = unztell(fsh[f].handleFiles.file.z);
+		pos = (intptr_t)unztell(fsh[f].handleFiles.file.z);
 	} else {
-		pos = ftell(fsh[f].handleFiles.file.o);
+		pos = FS_TellFile(fsh[f].handleFiles.file.o);
 	}
 	return pos;
 }

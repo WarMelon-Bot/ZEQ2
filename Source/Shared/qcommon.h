@@ -642,10 +642,10 @@ void	FS_FreeFile( void *buffer );
 void	FS_WriteFile( const char *qpath, const void *buffer, int size );
 // writes a complete file, creating any subdirectories needed
 
-int		FS_filelength( fileHandle_t f );
+intptr_t	FS_filelength( fileHandle_t f );
 // doesn't work for files that are opened from a pack file
 
-int		FS_FTell( fileHandle_t f );
+intptr_t	FS_FTell( fileHandle_t f );
 // where are we?
 
 void	FS_Flush( fileHandle_t f );
@@ -656,7 +656,7 @@ void 	QDECL FS_Printf( fileHandle_t f, const char *fmt, ... ) __attribute__ ((fo
 int		FS_FOpenFileByMode( const char *qpath, fileHandle_t *f, fsMode_t mode );
 // opens a file for reading, writing, or appending depending on the value of mode
 
-int		FS_Seek( fileHandle_t f, long offset, int origin );
+int		FS_Seek( fileHandle_t f, intptr_t offset, int origin );
 // seek on a file (doesn't work for zip files!!!!!!!!)
 
 qboolean FS_FilenameCompare( const char *s1, const char *s2 );

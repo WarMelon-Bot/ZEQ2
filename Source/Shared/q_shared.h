@@ -1008,8 +1008,10 @@ typedef struct {
 
 // The VM compiler uses 4-byte pointers even when the engine is 64-bit.  Keep
 // the two cache fields below the same width in 32-bit/QVM builds so that the
-// engine and game modules agree on every offset after them.
-#if defined( Q3_VM ) || ( !defined( _WIN64 ) && !defined( __LP64__ ) && !defined( __x86_64__ ) )
+// engine and game modules agree on every offset after them.  Q3_64BIT covers
+// every 64-bit target (Win64, LP64 Unix, arm64, ppc64, ...), so new platforms
+// do not silently change the shared struct layout.
+#if !Q3_64BIT
 #define VM_POINTER_PAD 1
 #endif
 

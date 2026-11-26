@@ -81,8 +81,15 @@ size_t S_OGG_Callback_read(void *ptr, size_t size, size_t nmemb, void *datasourc
 	// we use a snd_stream_t in the generic pointer to pass around
 	stream = (snd_stream_t *) datasource;
 
+	// FS_Read takes an int byte count; refuse chunks that cannot be represented
+	// instead of wrapping the requested size on 64-bit builds.
+	if ( size && nmemb > (size_t)INT_MAX / size ) {
+		errno = EFBIG;
+		return 0;
+	}
+
 	// FS_Read does not support multi-byte elements
-	byteSize = nmemb * size;
+	byteSize = (int)( nmemb * size );
 
 	// read it with the Q3 function FS_Read()
 	bytesRead = FS_Read(ptr, byteSize, stream->file);
@@ -125,7 +132,7 @@ int S_OGG_Callback_seek(void *datasource, ogg_int64_t offset, int whence)
 		case SEEK_SET :
 		{
 			// set the file position in the actual file with the Q3 function
-			retVal = FS_Seek(stream->file, (long) offset, FS_SEEK_SET);
+			retVal = FS_Seek(stream->file, (intptr_t) offset, FS_SEEK_SET);
 
 			// something has gone wrong, so we return here
 			if(retVal < 0)
@@ -134,14 +141,14 @@ int S_OGG_Callback_seek(void *datasource, ogg_int64_t offset, int whence)
 			}
 
 			// keep track of file position
-			stream->pos = (int) offset;
+			stream->pos = (int64_t) offset;
 			break;
 		}
   
 		case SEEK_CUR :
 		{
 			// set the file position in the actual file with the Q3 function
-			retVal = FS_Seek(stream->file, (long) offset, FS_SEEK_CUR);
+			retVal = FS_Seek(stream->file, (intptr_t) offset, FS_SEEK_CUR);
 
 			// something has gone wrong, so we return here
 			if(retVal < 0)
@@ -150,7 +157,7 @@ int S_OGG_Callback_seek(void *datasource, ogg_int64_t offset, int whence)
 			}
 
 			// keep track of file position
-			stream->pos += (int) offset;
+			stream->pos += (int64_t) offset;
 			break;
 		}
  
@@ -160,7 +167,7 @@ int S_OGG_Callback_seek(void *datasource, ogg_int64_t offset, int whence)
 			// so we use the file length and FS_SEEK_SET
 
 			// set the file position in the actual file with the Q3 function
-			retVal = FS_Seek(stream->file, (long) stream->length + (long) offset, FS_SEEK_SET);
+			retVal = FS_Seek(stream->file, (intptr_t) stream->length + (intptr_t) offset, FS_SEEK_SET);
 
 			// something has gone wrong, so we return here
 			if(retVal < 0)
@@ -169,7 +176,7 @@ int S_OGG_Callback_seek(void *datasource, ogg_int64_t offset, int whence)
 			}
 
 			// keep track of file position
-			stream->pos = stream->length + (int) offset;
+			stream->pos = stream->length + (int64_t) offset;
 			break;
 		}
   
@@ -199,6 +206,7 @@ int S_OGG_Callback_close(void *datasource)
 long S_OGG_Callback_tell(void *datasource)
 {
 	snd_stream_t   *stream;
+	intptr_t		pos;
 
 	// check if input is valid
 	if(!datasource)
@@ -210,7 +218,16 @@ long S_OGG_Callback_tell(void *datasource)
 	// snd_stream_t in the generic pointer
 	stream = (snd_stream_t *) datasource;
 
-	return (long) FS_FTell(stream->file);
+	// libogg's tell callback returns long (32 bits on Win64).  Clamp instead
+	// of wrapping the position when the file is larger than LONG_MAX.
+	pos = FS_FTell(stream->file);
+	if ( pos > LONG_MAX ) {
+		return LONG_MAX;
+	}
+	if ( pos < LONG_MIN ) {
+		return LONG_MIN;
+	}
+	return (long) pos;
 }
 
 // the callback structure
@@ -237,6 +254,7 @@ snd_stream_t *S_OGG_CodecOpenStream(const char *filename)
 	// some variables used to get informations about the OGG 
 	vorbis_info *OGGInfo;
 	ogg_int64_t numSamples;
+	int64_t		totalSize;
 
 	// check if input is valid
 	if(!filename)
@@ -314,8 +332,11 @@ snd_stream_t *S_OGG_CodecOpenStream(const char *filename)
 	stream->info.rate = OGGInfo->rate;
 	stream->info.width = OGG_SAMPLEWIDTH;
 	stream->info.channels = OGGInfo->channels;
-	stream->info.samples = numSamples;
-	stream->info.size = stream->info.samples * stream->info.channels * stream->info.width;
+	// The sound mixer still uses int sizes.  Clamp rather than let a very long
+	// stream wrap into a negative allocation length.
+	stream->info.samples = ( numSamples > INT_MAX ) ? INT_MAX : (int)numSamples;
+	totalSize = (int64_t)stream->info.samples * stream->info.channels * stream->info.width;
+	stream->info.size = ( totalSize > INT_MAX ) ? INT_MAX : (int)totalSize;
 	stream->info.dataofs = 0;
 
 	// We use stream->pos for the file pointer in the compressed ogg file 

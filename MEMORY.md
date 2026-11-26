@@ -15,7 +15,8 @@ compatible.
 * Free-list removal is O(1) through `freePrev`, and adjacent free blocks are
   still coalesced on free.
 * Block sizes and zone accounting use `size_t`; public availability queries
-  clamp to `INT_MAX` so the API stays unchanged.
+  clamp to `INT_MAX` so the API stays unchanged. On 64-bit builds the arena
+  itself may exceed that query limit.
 * All user pointers and block headers are 16-byte aligned. Static strings used
   by `CopyString` reserve the same header padding as real blocks, so they can
   be passed to `Z_Free` safely.
@@ -24,7 +25,8 @@ compatible.
   region with `calloc`; `Z_ClearZone` only initializes bookkeeping. The raw
   pointer is retained so reinitialization cannot leak or free an aligned
   interior pointer.
-* `com_zoneMegs` is clamped to a sane 1 GiB ceiling.
+* `com_zoneMegs` is clamped to 1 GiB on 32-bit builds. Full 64-bit builds use a
+  `size_t`-derived ceiling and can configure multi-gigabyte zones.
 
 ## Hunk allocator
 
@@ -33,8 +35,9 @@ compatible.
 * The arena is allocated with `malloc`; pages are committed as they are used
   rather than by touching 512 MB up front. `Hunk_Alloc` still zeroes the bytes
   it hands out.
-* `com_hunkMegs` is clamped to 4 GiB and checked for overflow before the byte
-  count is computed.
+* `com_hunkMegs` is clamped to 4 GiB on 32-bit builds. Full 64-bit builds lift
+  that cap to the cvar range and check for overflow before the byte count is
+  computed.
 * Capacity checks use the high-water value of each bank (`temp` or
   `permanent`, whichever is larger) instead of only `permanent`, preventing
   temporary allocations from overwriting live data.
@@ -44,6 +47,42 @@ compatible.
   consistently and no longer truncate large hunks.
 * The old unused `key` assignments and the unused `fs_game` cvar fetch in
   `Com_Frame`/`Com_WriteConfiguration` were removed.
+
+## 64-bit builds
+
+`Q3_64BIT` in `Source/Shared/q_platform.h` is the single source of truth for
+pointer width. It is zero for QVM and 32-bit targets and one for Win64, LP64
+Unix, arm64, ppc64, and the other 64-bit architectures supported by the engine.
+It also drives the `playerState_t` VM padding so native and bytecode modules
+keep identical shared structure offsets.
+
+On 64-bit builds both arenas use `size_t` totals, and the old 1 GiB/4 GiB cvar
+ceilings are lifted. Individual allocation APIs remain `int`-based for source
+compatibility with game modules, so a single request is still limited to
+`INT_MAX` bytes.
+
+Filesystem `FS_filelength` and `FS_FTell` now use `intptr_t` and the platform's
+large-file tell API (`_ftelli64` on Win64, `ftello` on LP64 Unix). The older
+`FS_ReadFile`/`FS_FOpenFileRead` entry points still return `int` for game-module
+compatibility, so oversized files are rejected with a clear message instead of
+wrapping. PK3 loading likewise rejects ZIP64 or larger-than-2-GiB members
+rather than silently truncating their offsets. OGG stream positions and HTTP
+download counters are pointer-width, and the x86-64 JIT's signed-immediate
+checks no longer rely on implementation-defined `u64` to `llabs()` conversions.
+
+The cross-platform build matrix is exercised by:
+
+```sh
+./build.sh release       # native 64-bit client, server, modules and QVMs
+./build.sh win64         # Windows x64 server and native modules
+./build.sh android       # Android arm64/armv7a client and packaged QVMs
+./build.sh test          # allocator + smoke tests
+./build.sh warnings      # warning-free release/debug rebuild
+```
+
+MSVC x64 projects use the portable VM interpreter (`NO_VM_COMPILED`); the
+32-bit x86 JIT is excluded there. macOS arm64 likewise falls back to the
+interpreter until an arm64 JIT backend exists.
 
 ## Tests
 
