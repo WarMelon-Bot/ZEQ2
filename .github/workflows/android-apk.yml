@@ -32,7 +32,7 @@ jobs:
       - name: Generate Clean Gradle Project & Placeholder Assets
         run: |
           python3 - << 'PY'
-          import os, textwrap, zipfile
+          import os, shutil, textwrap, zipfile
 
           os.makedirs("android/app/src/main/assets/baseq3", exist_ok=True)
           os.makedirs("android/app/src/main/jni", exist_ok=True)
@@ -73,12 +73,14 @@ jobs:
               """,
               "android/app/src/main/AndroidManifest.xml": """
                   <?xml version="1.0" encoding="utf-8"?>
-                  <manifest xmlns:android="http://android.com">
+                  <manifest xmlns:android="http://android.com"
+                      xmlns:tools="http://android.com">
                       <uses-feature android:glEsVersion="0x00020000" android:required="true" />
                       <uses-permission android:name="android.permission.INTERNET" />
                       <application
                           android:label="ZEQ2"
-                          android:hasCode="false">
+                          android:hasCode="false"
+                          tools:replace="android:label,android:hasCode">
                           <activity
                               android:name="android.app.NativeActivity"
                               android:label="ZEQ2"
@@ -152,6 +154,11 @@ jobs:
           gradle wrapper --gradle-version 8.5
           chmod +x gradlew
           ./gradlew assembleDebug
+
+      - name: Dump Merger Report on Failure
+        if: failure()
+        run: |
+          cat android/app/build/outputs/logs/manifest-merger-debug-report.txt || true
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v7
