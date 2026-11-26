@@ -88,6 +88,7 @@ static EGLint eglMajor = 0;
 static EGLint eglMinor = 0;
 static int androidGLWidth = 0;
 static int androidGLHeight = 0;
+static qboolean androidGLDispatchReady = qfalse;
 
 /*
 =================
@@ -558,6 +559,21 @@ void GLimp_Init( void )
 		ri.Error( ERR_FATAL, "GLimp_Init() - no Android window or EGL context" );
 		return;
 	}
+
+	/*
+	 * The renderer calls everything through qgl_dispatch_table.  On desktop
+	 * builds SDL's GLimp_Init fills that table; this port replaces GLimp_Init,
+	 * so it has to do it too.  Until this runs every qgl* call dereferences a
+	 * NULL function pointer, which is what made the app die right after the
+	 * first EGL frame.  Do it after eglMakeCurrent (eglGetProcAddress needs a
+	 * live display) and before GLimp_InitExtensions installs ARB wrappers,
+	 * because QGL_InitGLDispatch clears those pointers.
+	 */
+	if ( !androidGLDispatchReady ) {
+		QGL_InitGLDispatch();
+		androidGLDispatchReady = qtrue;
+	}
+	QGL_SelectBackend( qfalse );	/* No Vulkan backend in the GLES 1 port. */
 
 	renderer = (const char *)glGetString( GL_RENDERER );
 	vendor = (const char *)glGetString( GL_VENDOR );
