@@ -363,7 +363,13 @@ extern	vec4_t		colorMdGrey;
 extern	vec4_t		colorDkGrey;
 
 #define Q_COLOR_ESCAPE	'^'
-#define Q_IsColorString(p)	((p) && *(p) == Q_COLOR_ESCAPE && *((p)+1) && isalnum(*((p)+1))) // ^[0-9a-zA-Z]
+// Explicit ASCII ranges: isalnum() has undefined behaviour for negative char
+// values (UTF-8 bytes from untrusted message strings) and depends on the
+// current locale. Keep the ^[0-9a-zA-Z] colour escapes working everywhere.
+#define Q_IsColorString(p)	((p) && *(p) == Q_COLOR_ESCAPE && \
+	(((*((p)+1) >= '0') && (*((p)+1) <= '9')) || \
+	 ((*((p)+1) >= 'a') && (*((p)+1) <= 'z')) || \
+	 ((*((p)+1) >= 'A') && (*((p)+1) <= 'Z'))))
 
 #define COLOR_BLACK	'0'
 #define COLOR_RED	'1'
