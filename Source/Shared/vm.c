@@ -366,6 +366,8 @@ Load a .qvm file
 vmHeader_t *VM_LoadQVM( vm_t *vm, qboolean alloc ) {
 	int					dataLength;
 	int					i;
+	uint64_t			totalDataLength;
+	size_t				roundedLength;
 	char				filename[MAX_QPATH];
 	union {
 		vmHeader_t	*h;
@@ -420,13 +422,25 @@ vmHeader_t *VM_LoadQVM( vm_t *vm, qboolean alloc ) {
 				"magic number in its header", filename );
 	}
 
-	// round up to next power of 2 so all data operations can
-	// be mask protected
-	dataLength = header.h->dataLength + header.h->litLength +
-		header.h->bssLength;
-	for ( i = 0 ; dataLength > ( 1 << i ) ; i++ ) {
+	// Round up to the next power of two so all data operations can be mask
+	// protected.  Use a wider accumulator: three signed int lengths can
+	// overflow before the old loop (which also shifted a signed int into its
+	// sign bit) ever saw a valid size.  A QVM is a 32-bit machine, so cap the
+	// arena at 1 GiB to keep vm->dataMask and every offset representable as a
+	// positive int.
+	totalDataLength = (uint64_t)(uint32_t)header.h->dataLength +
+		(uint64_t)(uint32_t)header.h->litLength +
+		(uint64_t)(uint32_t)header.h->bssLength;
+	if ( totalDataLength > ( 1u << 30 ) ) {
+		VM_Free( vm );
+		Com_Error( ERR_FATAL, "%s data segment is too large for a 32-bit VM", filename );
 	}
-	dataLength = 1 << i;
+
+	roundedLength = 1;
+	while ( roundedLength < totalDataLength ) {
+		roundedLength <<= 1;
+	}
+	dataLength = (int)roundedLength;
 
 	if( alloc ) {
 		// allocate zero filled space for initialized and uninitialized data

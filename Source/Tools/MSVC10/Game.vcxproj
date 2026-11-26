@@ -68,8 +68,8 @@
     <IntDir Condition="'$(Configuration)|$(Platform)'=='Release|x64'">..\..\Build\Game_Release\</IntDir>
     <LinkIncremental Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">false</LinkIncremental>
     <LinkIncremental Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</LinkIncremental>
-    <TargetName Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">qagamex86_64</TargetName>
-    <TargetName Condition="'$(Configuration)|$(Platform)'=='Release|x64'">qagamex86_64</TargetName>
+    <TargetName Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">gamex86_64</TargetName>
+    <TargetName Condition="'$(Configuration)|$(Platform)'=='Release|x64'">gamex86_64</TargetName>
     <TargetName Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">qagamex86</TargetName>
     <TargetName Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">qagamex86</TargetName>
   </PropertyGroup>

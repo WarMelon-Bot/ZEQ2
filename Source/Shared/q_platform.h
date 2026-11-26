@@ -72,6 +72,24 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 // for windows fastcall option
 #define QDECL
 
+//============================================================= POINTER WIDTH ===
+
+// Full 64-bit builds need larger allocator ceilings and must keep the VM data
+// layout identical to the 32-bit QVM layout.  Q3_VM is always a 32-bit target,
+// regardless of the compiler hosting the VM assembler.
+#if defined(Q3_VM)
+#	define Q3_64BIT 0
+#elif defined(__WIN64__) || defined(_WIN64) || defined(_M_X64) || defined(_M_AMD64) || \
+	  defined(__LP64__) || defined(_LP64) || defined(__x86_64__) || defined(__amd64__) || \
+	  defined(__aarch64__) || defined(__ppc64__) || defined(__powerpc64__) || \
+	  defined(__s390x__) || defined(__sparcv9) || defined(__ia64__)
+#	define Q3_64BIT 1
+#else
+#	define Q3_64BIT 0
+#endif
+
+#define Q3_POINTER_SIZE (Q3_64BIT ? 8 : 4)
+
 //================================================================= WIN64/32 ===
 
 #if defined( __WIN64__ ) || defined( _WIN64 ) || defined( WIN64 )
@@ -148,6 +166,9 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #define Q3_LITTLE_ENDIAN
 #elif defined __x86_64__
 #define ARCH_STRING "x86_64"
+#define Q3_LITTLE_ENDIAN
+#elif defined __aarch64__ || defined __arm64__
+#define ARCH_STRING "arm64"
 #define Q3_LITTLE_ENDIAN
 #endif
 

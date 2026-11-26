@@ -13,8 +13,9 @@ ifeq ($(COMPILE_PLATFORM),sunos)
   COMPILE_ARCH=$(shell uname -p | sed -e s/i.86/i386/)
 endif
 ifeq ($(COMPILE_PLATFORM),darwin)
-  # Apple does some things a little differently...
-  COMPILE_ARCH=$(shell uname -p | sed -e s/i.86/i386/)
+  # Apple does some things a little differently.  uname -p reports "arm" on
+  # Apple Silicon; use the same name as the ARM64 JIT/arch selection below.
+  COMPILE_ARCH=$(shell uname -p | sed -e s/i.86/i386/ -e s/^arm$$/arm64/)
 endif
 
 ifeq ($(COMPILE_PLATFORM),mingw32)
@@ -377,7 +378,13 @@ else # ifeq Linux
 #############################################################################
 
 ifeq ($(PLATFORM),darwin)
-  HAVE_VM_COMPILED=true
+  # There is no ARM64 JIT backend yet; use the portable interpreter there.
+  # x86 and x86_64 (and ppc) keep the compiled VM.
+  ifneq ($(filter arm64 aarch64,$(ARCH)),)
+    HAVE_VM_COMPILED=false
+  else
+    HAVE_VM_COMPILED=true
+  endif
   LIBS = -framework Cocoa
   CLIENT_LIBS=
   OPTIMIZEVM=

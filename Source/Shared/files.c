@@ -33,6 +33,10 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include "qcommon.h"
 #include "unzip.h"
 
+#ifndef _WIN32
+#include <sys/types.h> // off_t for fseeko on 64-bit Unix
+#endif
+
 /*
 =============================================================================
 
@@ -1334,7 +1338,7 @@ FS_Seek
 
 =================
 */
-int FS_Seek( fileHandle_t f, long offset, int origin ) {
+int FS_Seek( fileHandle_t f, intptr_t offset, int origin ) {
 	int		_origin;
 
 	if ( !fs_searchpaths ) {
@@ -1352,7 +1356,7 @@ int FS_Seek( fileHandle_t f, long offset, int origin ) {
 		//FIXME: this is incomplete and really, really
 		//crappy (but better than what was here before)
 		byte	buffer[PK3_SEEK_BUFFER_SIZE];
-		int		remainder = offset;
+		int64_t	remainder = offset;
 
 		if( offset < 0 || origin == FS_SEEK_END ) {
 			Com_Error( ERR_FATAL, "Negative offsets and FS_SEEK_END not implemented "
@@ -1371,8 +1375,10 @@ int FS_Seek( fileHandle_t f, long offset, int origin ) {
 					FS_Read( buffer, PK3_SEEK_BUFFER_SIZE, f );
 					remainder -= PK3_SEEK_BUFFER_SIZE;
 				}
-				FS_Read( buffer, remainder, f );
-				return offset;
+				FS_Read( buffer, (int)remainder, f );
+				// Match fseek(): zero on success.  The old code returned the
+				// offset, which wrapped for files larger than INT_MAX bytes.
+				return 0;
 				break;
 
 			default:
@@ -1399,7 +1405,14 @@ int FS_Seek( fileHandle_t f, long offset, int origin ) {
 			break;
 		}
 
-		return fseek( file, offset, _origin );
+#if defined(_WIN32)
+		// long is only 32 bits on Win64 (LLP64), so use the large-file API.
+		return _fseeki64( file, (__int64)offset, _origin );
+#elif defined(__LP64__) || defined(_LP64)
+		return fseeko( file, (off_t)offset, _origin );
+#else
+		return fseek( file, (long)offset, _origin );
+#endif
 	}
 }
 

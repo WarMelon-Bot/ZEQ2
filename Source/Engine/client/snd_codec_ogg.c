@@ -125,7 +125,7 @@ int S_OGG_Callback_seek(void *datasource, ogg_int64_t offset, int whence)
 		case SEEK_SET :
 		{
 			// set the file position in the actual file with the Q3 function
-			retVal = FS_Seek(stream->file, (long) offset, FS_SEEK_SET);
+			retVal = FS_Seek(stream->file, (intptr_t) offset, FS_SEEK_SET);
 
 			// something has gone wrong, so we return here
 			if(retVal < 0)
@@ -141,7 +141,7 @@ int S_OGG_Callback_seek(void *datasource, ogg_int64_t offset, int whence)
 		case SEEK_CUR :
 		{
 			// set the file position in the actual file with the Q3 function
-			retVal = FS_Seek(stream->file, (long) offset, FS_SEEK_CUR);
+			retVal = FS_Seek(stream->file, (intptr_t) offset, FS_SEEK_CUR);
 
 			// something has gone wrong, so we return here
 			if(retVal < 0)
@@ -160,7 +160,7 @@ int S_OGG_Callback_seek(void *datasource, ogg_int64_t offset, int whence)
 			// so we use the file length and FS_SEEK_SET
 
 			// set the file position in the actual file with the Q3 function
-			retVal = FS_Seek(stream->file, (long) stream->length + (long) offset, FS_SEEK_SET);
+			retVal = FS_Seek(stream->file, (intptr_t) stream->length + (intptr_t) offset, FS_SEEK_SET);
 
 			// something has gone wrong, so we return here
 			if(retVal < 0)

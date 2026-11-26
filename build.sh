@@ -412,6 +412,47 @@ smoke_test() {
     log "Smoke test passed: dedicated server started and exited cleanly."
 }
 
+# Verify that a native 64-bit server accepts allocator sizes above the old
+# 1 GiB/4 GiB ceilings.  The cvars are latched, so this uses a short-lived
+# dedicated server process instead of the unit-test binary.
+memory_limit_test() {
+    case "$ARCH" in
+        x86_64|amd64|arm64|aarch64|ppc64|ppc64le|s390x|sparc64|ia64) ;;
+        *) warn "Skipping high-memory limit test on 32-bit architecture $ARCH."
+           return 0 ;;
+    esac
+
+    if [[ "${ZEQ2_SKIP_MEMORY_LIMIT_TEST:-0}" == 1 ]]; then
+        warn "Skipping high-memory limit test (ZEQ2_SKIP_MEMORY_LIMIT_TEST=1)."
+        return 0
+    fi
+
+    prepare_runtime "$RELEASE_DIR"
+    local binary logfile status=0
+    binary="$(find_binary "$RELEASE_DIR" 'ZEQ2Dedicated.*')" || die "Dedicated server was not built."
+    logfile="$(mktemp)"
+    trap 'rm -f "$logfile"' RETURN
+
+    log "Smoke-testing raised 64-bit allocator limits..."
+    (cd "$RELEASE_DIR" && timeout 30 "./$(basename "$binary")" \
+        +set com_hunkMegs 4097 +set com_zoneMegs 1025 \
+        +set sv_maxclients 1 +quit) >"$logfile" 2>&1 || status=$?
+
+    if ((status != 0)); then
+        cat "$logfile" >&2
+        die "Dedicated server exited with status $status with raised memory limits."
+    fi
+    if grep -q 'clamped to' "$logfile"; then
+        cat "$logfile" >&2
+        die "64-bit build still clamped com_hunkMegs/com_zoneMegs."
+    fi
+    grep -q 'Common Initialization Complete' "$logfile" || {
+        cat "$logfile" >&2
+        die "Dedicated server did not finish initialization with raised limits."
+    }
+    log "Smoke test passed: 64-bit hunk/zone limits accept multi-gigabyte cvars."
+}
+
 run_client_smoke_test() {
     local label="$1" pattern="$2" expect_thread="$3"
     shift 3
@@ -539,6 +580,7 @@ Commands:
   build     Build release and debug targets
   release   Build only the optimized release target
   test      Run allocator tests, then smoke-test server, OpenGL and Vulkan clients
+  memory-limit-test  Verify a 64-bit server accepts multi-gigabyte allocator cvars
   memory-test  Build and run the zone/hunk allocator unit tests
   memory-test-asan  Build and run the allocator unit tests with ASan/UBSan
   vulkan_smoke_test  Smoke-test the Vulkan client under Xvfb (lavapipe)
@@ -579,7 +621,8 @@ while (($#)); do
             ;;
         *)
             if [[ "$1" == all || "$1" == deps || "$1" == build || "$1" == release || \
-                  "$1" == test || "$1" == memory-test || "$1" == memory-test-asan || \
+                  "$1" == test || "$1" == memory-limit-test || \
+                  "$1" == memory-test || "$1" == memory-test-asan || \
                   "$1" == vulkan_smoke_test || "$1" == warnings || \
                   "$1" == win64 || "$1" == android || \
                   "$1" == run || "$1" == smp || "$1" == server || "$1" == clean ]]; then
@@ -599,6 +642,7 @@ case "$command_name" in
         memory_test
         memory_test_sanitized
         smoke_test
+        memory_limit_test
         client_smoke_test
         vulkan_smoke_test
         ;;
@@ -615,8 +659,12 @@ case "$command_name" in
         memory_test
         memory_test_sanitized
         smoke_test
+        memory_limit_test
         client_smoke_test
         vulkan_smoke_test
+        ;;
+    memory-limit-test)
+        memory_limit_test
         ;;
     memory-test)
         memory_test

@@ -284,6 +284,12 @@ int main( int argc, char **argv ) {
 
 	printf( "Running ZEQ2-Lite memory allocator tests...\n" );
 
+	// Q3_64BIT drives both the allocator ceilings and the VM struct padding,
+	// so fail early if platform detection ever disagrees with the toolchain.
+	CHECK( sizeof( void * ) == Q3_POINTER_SIZE,
+		"Q3_64BIT does not match pointer size (%llu != %d)",
+		(unsigned long long)sizeof( void * ), Q3_POINTER_SIZE );
+
 	Com_InitSmallZoneMemory();
 	Com_InitZoneMemory();
 	TestZoneBasic();
