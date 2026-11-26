@@ -1372,11 +1372,10 @@ void Com_Meminfo_f( void ) {
 	memblock_t	*block;
 	size_t		zoneBytes, zoneBlocks;
 	size_t		smallZoneBytes, smallZoneBlocks;
-	size_t		botlibBytes, rendererBytes;
+	size_t		rendererBytes;
 	size_t		unused;
 
 	zoneBytes = 0;
-	botlibBytes = 0;
 	rendererBytes = 0;
 	zoneBlocks = 0;
 	for (block = mainzone->blocklist.next ; ; block = block->next) {
@@ -1387,9 +1386,7 @@ void Com_Meminfo_f( void ) {
 		if ( block->tag ) {
 			zoneBytes += block->size;
 			zoneBlocks++;
-			if ( block->tag == TAG_BOTLIB ) {
-				botlibBytes += block->size;
-			} else if ( block->tag == TAG_RENDERER ) {
+			if ( block->tag == TAG_RENDERER ) {
 				rendererBytes += block->size;
 			}
 		}
@@ -1451,10 +1448,9 @@ void Com_Meminfo_f( void ) {
 	Com_Printf( "\n" );
 	Com_Printf( "%8llu bytes in %llu zone blocks\n",
 		(unsigned long long)zoneBytes, (unsigned long long)zoneBlocks );
-	Com_Printf( "        %8llu bytes in dynamic botlib\n", (unsigned long long)botlibBytes );
 	Com_Printf( "        %8llu bytes in dynamic renderer\n", (unsigned long long)rendererBytes );
 	Com_Printf( "        %8llu bytes in dynamic other\n",
-		(unsigned long long)(zoneBytes - ( botlibBytes + rendererBytes )) );
+		(unsigned long long)(zoneBytes - rendererBytes) );
 	Com_Printf( "        %8llu bytes in %llu small Zone blocks\n",
 		(unsigned long long)smallZoneBytes, (unsigned long long)smallZoneBlocks );
 }
@@ -3092,11 +3088,14 @@ void Com_Frame( void ) {
 	do {
 		int timeRemaining = minMsec - msec;
 
-		// The existing Sys_Sleep implementations aren't really
-		// precise enough to be of use beyond 100fps
-		// FIXME: implement a more precise sleep (RDTSC or something)
+		// Sys_Sleep is only millisecond-granular (and coarser on some
+		// platforms), so use it for the bulk of the wait.  For the remaining
+		// few milliseconds, yield instead of spinning at full speed: that
+		// keeps frame timing while letting other threads and cores run.
 		if( timeRemaining >= 10 )
 			Sys_Sleep( timeRemaining );
+		else if( timeRemaining > 0 )
+			Sys_Yield();
 
 		com_frameTime = Com_EventLoop();
 		if ( lastTime > com_frameTime ) {
@@ -3349,15 +3348,9 @@ Field_FindFirstSeparator
 */
 static char *Field_FindFirstSeparator( char *s )
 {
-	size_t i;
+	char *sep = strchr( s, ';' );
 
-	for( i = 0; i < strlen( s ); i++ )
-	{
-		if( s[ i ] == ';' )
-			return &s[ i ];
-	}
-
-	return NULL;
+	return sep;
 }
 
 /*

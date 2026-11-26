@@ -637,9 +637,9 @@ int Com_HexStrToInt( const char *str )
 	// check for hex code
 	if( str[ 0 ] == '0' && str[ 1 ] == 'x' )
 	{
-		int i, n = 0;
+		int i, n = 0, len = strlen( str );
 
-		for( i = 2; i < strlen( str ); i++ )
+		for( i = 2; i < len; i++ )
 		{
 			char digit;
 
@@ -1348,15 +1348,12 @@ Com_CharIsOneOfCharset
 */
 static qboolean Com_CharIsOneOfCharset( char c, char *set )
 {
-	int i;
-
-	for( i = 0; i < strlen( set ); i++ )
-	{
-		if( set[ i ] == c )
-			return qtrue;
-	}
-
-	return qfalse;
+	// strchr is SIMD-accelerated on modern libc; the old loop recomputed
+	// strlen(set) for every character. Keep the original semantics where
+	// the terminator is never considered part of the charset.
+	if( c == '\0' )
+		return qfalse;
+	return strchr( set, c ) != NULL;
 }
 
 /*

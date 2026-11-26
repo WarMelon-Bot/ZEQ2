@@ -132,9 +132,6 @@
     <ClInclude Include="..\..\Game\Game\g_team.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\Game\Game\match.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="..\..\Shared\q_shared.h">
       <Filter>Header Files</Filter>
     </ClInclude>

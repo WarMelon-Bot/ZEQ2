@@ -47,7 +47,6 @@
 				Name="VCCLCompilerTool"
 				Optimization="0"
 				AdditionalIncludeDirectories="..\..\Engine\libcurl; ..\..\Engine\AL; ..\..\Engine\libspeex\include; ..\..\Engine\SDL12\include; ..\..\Engine\zlib"
-				PreprocessorDefinitions="_WIN32;WIN32;_DEBUG;_WINDOWS;_CRT_SECURE_NO_DEPRECATE;BOTLIB;USE_ICON;USE_CURL;USE_CURL_DLOPEN;USE_VOIP;USE_CODEC_VORBIS;HAVE_CONFIG_H;STANDALONE"
 				RuntimeLibrary="3"
 				UsePrecompiledHeader="0"
 				PrecompiledHeaderFile="$(IntDir)\zeq2lite.pch"
@@ -150,7 +149,6 @@
 				Optimization="2"
 				InlineFunctionExpansion="2"
 				AdditionalIncludeDirectories="..\..\Engine\SDL12\include; ..\..\Engine\libcurl; ..\..\Engine\AL; ..\..\Engine\libspeex\include; ..\..\Engine\zlib"
-				PreprocessorDefinitions="_WIN32;WIN32;NDEBUG;_WINDOWS;_CRT_SECURE_NO_DEPRECATE;BOTLIB;USE_ICON;USE_CURL;USE_CURL_DLOPEN;USE_VOIP;USE_CODEC_VORBIS;HAVE_CONFIG_H;STANDALONE"
 				StringPooling="true"
 				RuntimeLibrary="0"
 				EnableFunctionLevelLinking="true"
@@ -984,7 +982,6 @@
 				</FileConfiguration>
 			</File>
 			<File
-				RelativePath="..\..\Engine\server\sv_bot.c"
 				>
 				<FileConfiguration
 					Name="Debug|Win32"
@@ -1613,230 +1610,6 @@
 				</File>
 				<File
 					RelativePath="..\..\Engine\jpeg-6b\jversion.h"
-					>
-				</File>
-			</Filter>
-		</Filter>
-		<Filter
-			Name="botlib"
-			>
-			<Filter
-				Name="Source Files"
-				>
-				<File
-					RelativePath="..\..\Engine\botlib\be_aas_bspq3.c"
-					>
-				</File>
-				<File
-					RelativePath="..\..\Engine\botlib\be_aas_cluster.c"
-					>
-				</File>
-				<File
-					RelativePath="..\..\Engine\botlib\be_aas_debug.c"
-					>
-				</File>
-				<File
-					RelativePath="..\..\Engine\botlib\be_aas_entity.c"
-					>
-				</File>
-				<File
-					RelativePath="..\..\Engine\botlib\be_aas_file.c"
-					>
-				</File>
-				<File
-					RelativePath="..\..\Engine\botlib\be_aas_main.c"
-					>
-				</File>
-				<File
-					RelativePath="..\..\Engine\botlib\be_aas_move.c"
-					>
-				</File>
-				<File
-					RelativePath="..\..\Engine\botlib\be_aas_optimize.c"
-					>
-				</File>
-				<File
-					RelativePath="..\..\Engine\botlib\be_aas_reach.c"
-					>
-				</File>
-				<File
-					RelativePath="..\..\Engine\botlib\be_aas_route.c"
-					>
-				</File>
-				<File
-					RelativePath="..\..\Engine\botlib\be_aas_routealt.c"
-					>
-				</File>
-				<File
-					RelativePath="..\..\Engine\botlib\be_aas_sample.c"
-					>
-				</File>
-				<File
-					RelativePath="..\..\Engine\botlib\be_ai_char.c"
-					>
-				</File>
-				<File
-					RelativePath="..\..\Engine\botlib\be_ai_chat.c"
-					>
-				</File>
-				<File
-					RelativePath="..\..\Engine\botlib\be_ai_gen.c"
-					>
-				</File>
-				<File
-					RelativePath="..\..\Engine\botlib\be_ai_goal.c"
-					>
-				</File>
-				<File
-					RelativePath="..\..\Engine\botlib\be_ai_move.c"
-					>
-				</File>
-				<File
-					RelativePath="..\..\Engine\botlib\be_ai_weap.c"
-					>
-				</File>
-				<File
-					RelativePath="..\..\Engine\botlib\be_ai_weight.c"
-					>
-				</File>
-				<File
-					RelativePath="..\..\Engine\botlib\be_ea.c"
-					>
-				</File>
-				<File
-					RelativePath="..\..\Engine\botlib\be_interface.c"
-					>
-				</File>
-				<File
-					RelativePath="..\..\Engine\botlib\l_crc.c"
-					>
-				</File>
-				<File
-					RelativePath="..\..\Engine\botlib\l_libvar.c"
-					>
-				</File>
-				<File
-					RelativePath="..\..\Engine\botlib\l_log.c"
-					>
-				</File>
-				<File
-					RelativePath="..\..\Engine\botlib\l_memory.c"
-					>
-				</File>
-				<File
-					RelativePath="..\..\Engine\botlib\l_precomp.c"
-					>
-				</File>
-				<File
-					RelativePath="..\..\Engine\botlib\l_script.c"
-					>
-				</File>
-				<File
-					RelativePath="..\..\Engine\botlib\l_struct.c"
-					>
-				</File>
-			</Filter>
-			<Filter
-				Name="Header Files"
-				>
-				<File
-					RelativePath="..\..\Engine\botlib\aasfile.h"
-					>
-				</File>
-				<File
-					RelativePath="..\..\Engine\botlib\be_aas_bsp.h"
-					>
-				</File>
-				<File
-					RelativePath="..\..\Engine\botlib\be_aas_cluster.h"
-					>
-				</File>
-				<File
-					RelativePath="..\..\Engine\botlib\be_aas_debug.h"
-					>
-				</File>
-				<File
-					RelativePath="..\..\Engine\botlib\be_aas_def.h"
-					>
-				</File>
-				<File
-					RelativePath="..\..\Engine\botlib\be_aas_entity.h"
-					>
-				</File>
-				<File
-					RelativePath="..\..\Engine\botlib\be_aas_file.h"
-					>
-				</File>
-				<File
-					RelativePath="..\..\Engine\botlib\be_aas_funcs.h"
-					>
-				</File>
-				<File
-					RelativePath="..\..\Engine\botlib\be_aas_main.h"
-					>
-				</File>
-				<File
-					RelativePath="..\..\Engine\botlib\be_aas_move.h"
-					>
-				</File>
-				<File
-					RelativePath="..\..\Engine\botlib\be_aas_optimize.h"
-					>
-				</File>
-				<File
-					RelativePath="..\..\Engine\botlib\be_aas_reach.h"
-					>
-				</File>
-				<File
-					RelativePath="..\..\Engine\botlib\be_aas_route.h"
-					>
-				</File>
-				<File
-					RelativePath="..\..\Engine\botlib\be_aas_routealt.h"
-					>
-				</File>
-				<File
-					RelativePath="..\..\Engine\botlib\be_aas_sample.h"
-					>
-				</File>
-				<File
-					RelativePath="..\..\Engine\botlib\be_ai_weight.h"
-					>
-				</File>
-				<File
-					RelativePath="..\..\Engine\botlib\be_interface.h"
-					>
-				</File>
-				<File
-					RelativePath="..\..\Engine\botlib\l_crc.h"
-					>
-				</File>
-				<File
-					RelativePath="..\..\Engine\botlib\l_libvar.h"
-					>
-				</File>
-				<File
-					RelativePath="..\..\Engine\botlib\l_log.h"
-					>
-				</File>
-				<File
-					RelativePath="..\..\Engine\botlib\l_memory.h"
-					>
-				</File>
-				<File
-					RelativePath="..\..\Engine\botlib\l_precomp.h"
-					>
-				</File>
-				<File
-					RelativePath="..\..\Engine\botlib\l_script.h"
-					>
-				</File>
-				<File
-					RelativePath="..\..\Engine\botlib\l_struct.h"
-					>
-				</File>
-				<File
-					RelativePath="..\..\Engine\botlib\l_utils.h"
 					>
 				</File>
 			</Filter>

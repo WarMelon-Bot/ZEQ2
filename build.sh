@@ -5,6 +5,7 @@
 #   ./build.sh                 build everything and smoke-test server + client
 #   ./build.sh build           build release + debug targets
 #   ./build.sh release         build only the optimized release target (fastest)
+#   ./build.sh native          build a release tuned for this CPU (MARCH=native)
 #   ./build.sh test            run allocator unit tests and smoke tests
 #   ./build.sh memory-test     build and run just the allocator unit tests
 #   ./build.sh memory-test-asan  build and run the allocator tests with ASan/UBSan
@@ -134,6 +135,18 @@ build_release() {
     prepare_runtime "$RELEASE_DIR"
     verify_release_artifacts
     log "Release build complete. Artifacts are in $RELEASE_DIR"
+}
+
+build_native() {
+    log "Building release tuned for this CPU (-march=native)..."
+    # Make does not track command-line flag changes, so start from a clean
+    # release tree to guarantee the native flags are actually applied.
+    rm -rf "$RELEASE_DIR"
+    make -C "$SOURCE_DIR" release -j"$JOBS" USE_LOCAL_HEADERS=0 \
+        MARCH=native $MAKE_ARGS
+    prepare_runtime "$RELEASE_DIR"
+    verify_release_artifacts
+    log "Native release build complete. Artifacts are in $RELEASE_DIR"
 }
 
 warnings_check() (
@@ -669,6 +682,7 @@ Commands:
   deps      Check/install build dependencies via apt
   build     Build release and debug targets
   release   Build only the optimized release target
+  native    Build a release tuned for this CPU (-march=native)
   test      Run unit/regression tests, then smoke-test server, OpenGL and Vulkan clients
   memory-limit-test  Verify a 64-bit server accepts multi-gigabyte allocator cvars
   memory-test  Build and run the zone/hunk allocator unit tests
@@ -714,7 +728,7 @@ while (($#)); do
             ;;
         *)
             if [[ "$1" == all || "$1" == deps || "$1" == build || "$1" == release || \
-                  "$1" == test || "$1" == memory-limit-test || \
+                  "$1" == native || "$1" == test || "$1" == memory-limit-test || \
                   "$1" == memory-test || "$1" == memory-test-asan || \
                   "$1" == pmove-test || "$1" == connect-cache-test || \
                    "$1" == chat-message-test || \
@@ -752,6 +766,9 @@ case "$command_name" in
         ;;
     release)
         build_release
+        ;;
+    native)
+        build_native
         ;;
     test)
         memory_test

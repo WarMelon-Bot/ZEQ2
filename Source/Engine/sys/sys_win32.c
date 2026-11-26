@@ -575,6 +575,18 @@ void Sys_Sleep( int msec )
 
 /*
 ==============
+Sys_Yield
+
+Give up the rest of this thread's timeslice without sleeping.
+==============
+*/
+void Sys_Yield( void )
+{
+	SwitchToThread();
+}
+
+/*
+==============
 Sys_ErrorDialog
 
 Display an error message
