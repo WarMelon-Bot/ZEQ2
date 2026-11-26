@@ -415,6 +415,9 @@ void G_InitGame( int levelTime, int randomSeed, int restart ) {
 
 	G_InitMemory();
 
+	// model scripts can be replaced between map loads
+	G_ClearTierCache();
+
 	// set some level globals
 	memset( &level, 0, sizeof( level ) );
 	level.time = levelTime;

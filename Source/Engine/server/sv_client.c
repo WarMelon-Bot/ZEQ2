@@ -22,6 +22,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 // sv_client.c -- server code for dealing with clients
 
 #include "server.h"
+#include "../../Shared/checksum_hash.h"
 
 static void SV_CloseDownload( client_t *cl );
 
@@ -990,6 +991,11 @@ static void SV_Disconnect_f( client_t *cl ) {
 	SV_DropClient( cl, "disconnected" );
 }
 
+// Pure-checksum sets used to be compared with nested loops (up to 1024x1024
+// comparisons inside a single packet event).  A client sends this command as
+// part of connecting, so that could stall every player already on the server.
+static checksumHash_t cpHash;
+
 /*
 =================
 SV_VerifyPaks_f
@@ -1004,11 +1010,12 @@ This routine would be a bit simpler with a goto but i abstained
 =================
 */
 static void SV_VerifyPaks_f( client_t *cl ) {
-	int nChkSum1, nChkSum2, nClientPaks, nServerPaks, i, j, nCurArg;
+	int nChkSum1, nChkSum2, nClientPaks, nServerPaks, i, nCurArg;
 	int nClientChkSum[1024];
-	int nServerChkSum[1024];
 	const char *pPaks, *pArg;
 	qboolean bGood = qtrue;
+
+	ChecksumHash_NextGeneration( &cpHash );
 
 	// if we are pure, we "expect" the client to load certain things from 
 	// certain pk3 files, namely we want the client to have loaded the
@@ -1073,25 +1080,31 @@ static void SV_VerifyPaks_f( client_t *cl ) {
 			}
 			// store checksums since tokenization is not re-entrant
 			for (i = 0; nCurArg < nClientPaks; i++) {
+				if ( i >= (int)( sizeof(nClientChkSum) / sizeof(nClientChkSum[0]) ) - 1 ) {
+					// leave room for the checksum count at the end
+					bGood = qfalse;
+					break;
+				}
 				nClientChkSum[i] = atoi(Cmd_Argv(nCurArg++));
+			}
+			if ( bGood == qfalse ) {
+				break;
 			}
 
 			// store number to compare against (minus one cause the last is the number of checksums)
 			nClientPaks = i - 1;
+			if ( nClientPaks < 0 ) {
+				bGood = qfalse;
+				break;
+			}
 
 			// make sure none of the client check sums are the same
 			// so the client can't send 5 the same checksums
 			for (i = 0; i < nClientPaks; i++) {
-				for (j = 0; j < nClientPaks; j++) {
-					if (i == j)
-						continue;
-					if (nClientChkSum[i] == nClientChkSum[j]) {
-						bGood = qfalse;
-						break;
-					}
-				}
-				if (bGood == qfalse)
+				if ( !ChecksumHash_Insert( &cpHash, 0, nClientChkSum[i] ) ) {
+					bGood = qfalse;
 					break;
+				}
 			}
 			if (bGood == qfalse)
 				break;
@@ -1104,17 +1117,12 @@ static void SV_VerifyPaks_f( client_t *cl ) {
 				nServerPaks = 1024;
 
 			for (i = 0; i < nServerPaks; i++) {
-				nServerChkSum[i] = atoi(Cmd_Argv(i));
+				ChecksumHash_Insert( &cpHash, 1, atoi(Cmd_Argv(i)) );
 			}
 
 			// check if the client has provided any pure checksums of pk3 files not loaded by the server
 			for (i = 0; i < nClientPaks; i++) {
-				for (j = 0; j < nServerPaks; j++) {
-					if (nClientChkSum[i] == nServerChkSum[j]) {
-						break;
-					}
-				}
-				if (j >= nServerPaks) {
+				if ( !ChecksumHash_Contains( &cpHash, 1, nClientChkSum[i] ) ) {
 					bGood = qfalse;
 					break;
 				}

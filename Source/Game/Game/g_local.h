@@ -337,7 +337,10 @@ struct gclient_s {
 	// ADDING FOR ZEQ2
 	gentity_t	*guidetarget;		// guided weapon when firing one
 	gentity_t	*playerEntity;
-	char		*modelName;
+	// Owned storage: the old pointer pointed at a stack buffer in
+	// ClientUserinfoChanged() and was dangling as soon as it returned.
+	char		modelName[MAX_QPATH];
+	qboolean	modelConfigLoaded;	// tiers/weapon scripts only need loading on model change
 	tierConfig_g tiers[8];
 	
 	// END ADDING
@@ -709,6 +712,7 @@ void G_RadarUpdateCS( void );
 void checkTier( gclient_t *client );
 void syncTier( gclient_t *client );
 void setupTiers( gclient_t *client );
+void G_ClearTierCache( void );
 void G_CheckSkills( playerState_t *ps );
 
 //

@@ -233,11 +233,139 @@ but not on every player enter or exit.
 */
 #define	HEARTBEAT_MSEC	300*1000
 #define	HEARTBEAT_GAME	"QuakeArena-1"
-void SV_MasterHeartbeat( void ) {
-	static netadr_t	adr[MAX_MASTER_SERVERS][2]; // [2] for v4 and v6 address for the same address string.
+
+// [2] for v4 and v6 address for the same address string.
+static netadr_t	masterAdr[MAX_MASTER_SERVERS][2];
+
+/*
+===============
+SV_HaveConnectedClients
+
+Used to keep expensive, synchronous work out of a frame that has players in
+it.  Zombies and free slots do not count; they cannot be hitched.
+===============
+*/
+static qboolean SV_HaveConnectedClients( void ) {
+	int i;
+
+	for ( i = 0; i < sv_maxclients->integer; i++ ) {
+		if ( svs.clients[i].state >= CS_CONNECTED ) {
+			return qtrue;
+		}
+	}
+	return qfalse;
+}
+
+/*
+===============
+SV_ResolveMasters
+
+NET_StringToAdr() uses a blocking getaddrinfo().  A name lookup during a
+server frame stalls the single-threaded simulation, which shows up as a
+"Hitch warning" and freezes every connected client.  A client connecting or
+disconnecting used to force that lookup through SV_Heartbeat_f().
+
+Resolve names once at startup, whenever an operator changes the cvar, and on
+a periodic heartbeat only while the server is empty.  Heartbeats triggered
+by players connecting/disconnecting just use the addresses we already know.
+===============
+*/
+static void SV_ResolveMasters( qboolean allowIdleRetry ) {
 	int			i;
 	int			res;
 	int			netenabled;
+	qboolean	changed;
+	cvar_t		*master;
+
+	netenabled = Cvar_VariableIntegerValue("net_enabled");
+
+	// "dedicated 1" is for lan play, "dedicated 2" is for inet public play
+	if (!com_dedicated || com_dedicated->integer != 2 || !(netenabled & (NET_ENABLEV4 | NET_ENABLEV6)))
+		return;		// only dedicated servers send heartbeats
+
+	for (i = 0; i < MAX_MASTER_SERVERS; i++)
+	{
+		master = sv_master[i];
+		if ( !master || !master->string[0] )
+			continue;
+
+		changed = master->modified;
+		if ( !changed && !( allowIdleRetry &&
+			masterAdr[i][0].type == NA_BAD && masterAdr[i][1].type == NA_BAD ) ) {
+			continue;
+		}
+
+		master->modified = qfalse;
+		if ( changed ) {
+			// a new name must not inherit the old name's addresses
+			Com_Memset( masterAdr[i], 0, sizeof( masterAdr[i] ) );
+			masterAdr[i][0].type = NA_BAD;
+			masterAdr[i][1].type = NA_BAD;
+		}
+
+		if(netenabled & NET_ENABLEV4)
+		{
+			Com_Printf("Resolving %s (IPv4)\n", master->string);
+			res = NET_StringToAdr(master->string, &masterAdr[i][0], NA_IP);
+
+			if(res == 2)
+			{
+				// if no port was specified, use the default master port
+				masterAdr[i][0].port = BigShort(PORT_MASTER);
+			}
+
+			if(res)
+				Com_Printf( "%s resolved to %s\n", master->string, NET_AdrToStringwPort(masterAdr[i][0]));
+			else
+				Com_Printf( "%s has no IPv4 address.\n", master->string);
+		} else {
+			// don't keep using an address from a now-disabled family
+			masterAdr[i][0].type = NA_BAD;
+		}
+
+		if(netenabled & NET_ENABLEV6)
+		{
+			Com_Printf("Resolving %s (IPv6)\n", master->string);
+			res = NET_StringToAdr(master->string, &masterAdr[i][1], NA_IP6);
+
+			if(res == 2)
+			{
+				// if no port was specified, use the default master port
+				masterAdr[i][1].port = BigShort(PORT_MASTER);
+			}
+
+			if(res)
+				Com_Printf( "%s resolved to %s\n", master->string, NET_AdrToStringwPort(masterAdr[i][1]));
+			else
+				Com_Printf( "%s has no IPv6 address.\n", master->string);
+		} else {
+			masterAdr[i][1].type = NA_BAD;
+		}
+
+		if(masterAdr[i][0].type == NA_BAD && masterAdr[i][1].type == NA_BAD)
+		{
+			// Leave the cvar alone: it may be a temporary DNS failure.  The
+			// next heartbeat while the server is empty will try again.
+			Com_Printf("Couldn't resolve address: %s\n", master->string);
+		}
+	}
+}
+
+/*
+===============
+SV_MasterHeartbeat
+
+Send a message to the masters every few minutes to
+let it know we are alive, and log information.
+We will also have a heartbeat sent when a server
+changes from empty to non-empty, and full to non-full,
+but not on every player enter or exit.
+================
+*/
+void SV_MasterHeartbeat( void ) {
+	int			i;
+	int			netenabled;
+	qboolean	sentAny = qfalse;
 
 	netenabled = Cvar_VariableIntegerValue("net_enabled");
 
@@ -251,77 +379,39 @@ void SV_MasterHeartbeat( void ) {
 
 	svs.nextHeartbeatTime = svs.time + HEARTBEAT_MSEC;
 
+	// DNS is synchronous; only retry unresolved names while nobody is playing
+	SV_ResolveMasters( !SV_HaveConnectedClients() );
+
 	// send to group masters
 	for (i = 0; i < MAX_MASTER_SERVERS; i++)
 	{
 		if(!sv_master[i]->string[0])
 			continue;
 
-		// see if we haven't already resolved the name
-		// resolving usually causes hitches on win95, so only
-		// do it when needed
-		if(sv_master[i]->modified || (adr[i][0].type == NA_BAD && adr[i][1].type == NA_BAD))
-		{
-			sv_master[i]->modified = qfalse;
-			
-			if(netenabled & NET_ENABLEV4)
-			{
-				Com_Printf("Resolving %s (IPv4)\n", sv_master[i]->string);
-				res = NET_StringToAdr(sv_master[i]->string, &adr[i][0], NA_IP);
-
-				if(res == 2)
-				{
-					// if no port was specified, use the default master port
-					adr[i][0].port = BigShort(PORT_MASTER);
-				}
-				
-				if(res)
-					Com_Printf( "%s resolved to %s\n", sv_master[i]->string, NET_AdrToStringwPort(adr[i][0]));
-				else
-					Com_Printf( "%s has no IPv4 address.\n", sv_master[i]->string);
-			}
-			
-			if(netenabled & NET_ENABLEV6)
-			{
-				Com_Printf("Resolving %s (IPv6)\n", sv_master[i]->string);
-				res = NET_StringToAdr(sv_master[i]->string, &adr[i][1], NA_IP6);
-
-				if(res == 2)
-				{
-					// if no port was specified, use the default master port
-					adr[i][1].port = BigShort(PORT_MASTER);
-				}
-				
-				if(res)
-					Com_Printf( "%s resolved to %s\n", sv_master[i]->string, NET_AdrToStringwPort(adr[i][1]));
-				else
-					Com_Printf( "%s has no IPv6 address.\n", sv_master[i]->string);
-			}
-
-			if(adr[i][0].type == NA_BAD && adr[i][1].type == NA_BAD)
-			{
-				// if the address failed to resolve, clear it
-				// so we don't take repeated dns hits
-				Com_Printf("Couldn't resolve address: %s\n", sv_master[i]->string);
-				Cvar_Set(sv_master[i]->name, "");
-				sv_master[i]->modified = qfalse;
-				continue;
-			}
-		}
-
+		if(masterAdr[i][0].type == NA_BAD && masterAdr[i][1].type == NA_BAD)
+			continue;
 
 		Com_Printf ("Sending heartbeat to %s\n", sv_master[i]->string );
 
 		// this command should be changed if the server info / status format
 		// ever incompatably changes
 
-		if(adr[i][0].type != NA_BAD)
-			NET_OutOfBandPrint( NS_SERVER, adr[i][0], "heartbeat %s\n", HEARTBEAT_GAME );
-		if(adr[i][1].type != NA_BAD)
-			NET_OutOfBandPrint( NS_SERVER, adr[i][1], "heartbeat %s\n", HEARTBEAT_GAME );
+		if((netenabled & NET_ENABLEV4) && masterAdr[i][0].type != NA_BAD) {
+			NET_OutOfBandPrint( NS_SERVER, masterAdr[i][0], "heartbeat %s\n", HEARTBEAT_GAME );
+			sentAny = qtrue;
+		}
+		if((netenabled & NET_ENABLEV6) && masterAdr[i][1].type != NA_BAD) {
+			NET_OutOfBandPrint( NS_SERVER, masterAdr[i][1], "heartbeat %s\n", HEARTBEAT_GAME );
+			sentAny = qtrue;
+		}
+	}
+
+	// An unresolved master is retried at the next regular heartbeat, and
+	// immediately when the server becomes empty again.
+	if ( !sentAny ) {
+		svs.nextHeartbeatTime = svs.time + HEARTBEAT_MSEC;
 	}
 }
-
 /*
 =================
 SV_MasterShutdown
