@@ -29,10 +29,6 @@ jobs:
           sdkmanager --install "ndk;25.2.9519653" "cmake;3.22.1"
           sudo apt-get update && sudo apt-get install -y zip
 
-      - name: Inspect Existing Android Folder
-        run: |
-          find android -maxdepth 4 2>/dev/null || true
-
       - name: Generate Clean Gradle Project & Placeholder Assets
         run: |
           python3 - << 'PY'
@@ -89,7 +85,6 @@ jobs:
                               android:screenOrientation="landscape"
                               android:configChanges="orientation|keyboardHidden|screenSize"
                               android:exported="true">
-                              <meta-data android:name="android.app.lib_name" android:value="zeq2" />
                               <intent-filter>
                                   <action android:name="android.intent.action.MAIN" />
                                   <category android:name="android.intent.category.LAUNCHER" />
@@ -105,13 +100,13 @@ jobs:
                       "${CMAKE_CURRENT_SOURCE_DIR}/../../../../../Source/*.c"
                       "${CMAKE_CURRENT_SOURCE_DIR}/../../../../../Source/*.cpp"
                   )
-                  add_library(zeq2 SHARED ${ENGINE_SOURCES})
-                  target_include_directories(zeq2 PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../../../../../Source")
+                  add_library(main SHARED ${ENGINE_SOURCES})
+                  target_include_directories(main PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../../../../../Source")
                   find_library(log-lib log)
                   find_library(android-lib android)
                   find_library(egl-lib EGL)
                   find_library(gles-lib GLESv2)
-                  target_link_libraries(zeq2 ${log-lib} ${android-lib} ${egl-lib} ${gles-lib})
+                  target_link_libraries(main ${log-lib} ${android-lib} ${egl-lib} ${gles-lib})
               """,
               "android/app/build.gradle": """
                   plugins {
