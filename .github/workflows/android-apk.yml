@@ -28,24 +28,38 @@ jobs:
         run: |
           sdkmanager --install "ndk;25.2.9519653" "cmake;3.22.1"
 
-      - name: Inspect Android Directory
-        working-directory: ./android
-        run: ls -la
+      - name: Find Android Build Files
+        run: |
+          echo "=== Files in android/ ==="
+          find android -maxdepth 3
+          echo "=== Root build.sh ==="
+          cat build.sh || true
 
       - name: Build Debug APK
-        working-directory: ./android
         run: |
-          if [ -f "./gradlew" ]; then
+          GRADLEW_PATH=$(find . -name "gradlew" | head -n 1)
+          GRADLE_FILE=$(find android -name "build.gradle*" | head -n 1)
+
+          if [ -n "$GRADLEW_PATH" ]; then
+            echo "Found gradlew at $GRADLEW_PATH"
+            GRADLE_DIR=$(dirname "$GRADLEW_PATH")
+            cd "$GRADLE_DIR"
             chmod +x gradlew
             ./gradlew assembleDebug
-          else
+          elif [ -n "$GRADLE_FILE" ]; then
+            echo "Found build.gradle at $GRADLE_FILE"
+            GRADLE_DIR=$(dirname "$GRADLE_FILE")
+            cd "$GRADLE_DIR"
             gradle assembleDebug
+          else
+            echo "No Gradle project found in android/ — check Find Android Build Files output"
+            exit 1
           fi
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v7
         with:
           name: ZEQ2-Android-Debug-APK
-          path: android/**/build/outputs/apk/debug/*.apk
+          path: "**/build/outputs/apk/**/*.apk"
           archive: false
           if-no-files-found: error
