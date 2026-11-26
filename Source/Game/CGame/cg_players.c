@@ -645,6 +645,11 @@ static void CG_PlayerAnimation( centity_t *cent,
 
 	clientNum = cent->currentState.clientNum;
 
+	if ( clientNum < 0 || clientNum >= MAX_CLIENTS ) {
+		return;
+	}
+	ci = &cgs.clientinfo[clientNum];
+
 	if ( cg_noPlayerAnims.integer ) {
 		*legsOld = *legs = *torsoOld = *torso = 0;
 		return;
@@ -659,10 +664,13 @@ static void CG_PlayerAnimation( centity_t *cent,
 		tier = 0;
 	} else {
 		tier = cent->currentState.tier;
+		// entityState.tier is only four bits but the client only has 8
+		// tier configs; clamp before using it as an array index.
+		if ( tier < 0 || tier >= (int)(sizeof( ci->tierConfig ) / sizeof( ci->tierConfig[0] )) ) {
+			tier = 0;
+		}
 	}
 	speedScale = 1;
-
-	ci = &cgs.clientinfo[ clientNum ];
 
 	// do the shuffle turn frames locally
 	if ( cent->pe.legs.yawing && ( cent->currentState.legsAnim & ~ANIM_TOGGLEBIT ) == ANIM_IDLE ) {
@@ -970,8 +978,7 @@ static void CG_PlayerAngles( centity_t *cent, vec3_t legs[3], vec3_t torso[3], v
 	clientInfo_t	*ci;
 	
 	clientNum = cent->currentState.clientNum;
-	if ( clientNum < 0 || clientNum > MAX_CLIENTS ) {
-		CG_Error( "Bad clientNum on player entity" );
+	if ( clientNum < 0 || clientNum >= MAX_CLIENTS ) {
 		return;
 	}
 	ci = &cgs.clientinfo[ clientNum ];
@@ -1554,7 +1561,8 @@ void CG_Player( centity_t *cent ) {
 	float			xyzspeed;
 	ps = &cg.snap->ps;
 	clientNum = cent->currentState.clientNum;
-	if ( clientNum < 0 || clientNum >= MAX_CLIENTS ){CG_Error( "Bad clientNum on player entity" );}
+	// A server must not be able to force an ERR_DROP with a bad entity index.
+	if ( clientNum < 0 || clientNum >= MAX_CLIENTS ){return;}
 	ci = &cgs.clientinfo[clientNum];
 	if (!ci->infoValid){return;}
 	if(cg.resetValues){
@@ -1578,6 +1586,9 @@ void CG_Player( centity_t *cent ) {
 	if(onBodyQue){tier = 0;}
 	else{
 		tier = cent->currentState.tier;
+		if ( tier < 0 || tier >= (int)(sizeof( ci->tierConfig ) / sizeof( ci->tierConfig[0] )) ) {
+			tier = 0;
+		}
 		if ( ci->tierCurrent != tier ) {
 			ci->tierCurrent = tier;
 			CG_AddEarthquake(cent->lerpOrigin, 400, 1, 0, 1, 400);
@@ -1744,7 +1755,7 @@ qboolean CG_GetTagOrientationFromPlayerEntityHeadModel( centity_t *cent, char *t
 	// multiple corpses on the level using the same clientinfo
 	clientNum = cent->currentState.clientNum;
 	if ( clientNum < 0 || clientNum >= MAX_CLIENTS ) {
-		CG_Error( "Bad clientNum on player entity" );
+		return qfalse;
 	}
 	
 	// It is possible to see corpses from disconnected players that may
@@ -1823,7 +1834,7 @@ qboolean CG_GetTagOrientationFromPlayerEntityTorsoModel( centity_t *cent, char *
 	// multiple corpses on the level using the same clientinfo
 	clientNum = cent->currentState.clientNum;
 	if ( clientNum < 0 || clientNum >= MAX_CLIENTS ) {
-		CG_Error( "Bad clientNum on player entity" );
+		return qfalse;
 	}
 	
 	// It is possible to see corpses from disconnected players that may
@@ -1895,7 +1906,7 @@ qboolean CG_GetTagOrientationFromPlayerEntityLegsModel( centity_t *cent, char *t
 	// multiple corpses on the level using the same clientinfo
 	clientNum = cent->currentState.clientNum;
 	if ( clientNum < 0 || clientNum >= MAX_CLIENTS ) {
-		CG_Error( "Bad clientNum on player entity" );
+		return qfalse;
 	}
 	
 	// It is possible to see corpses from disconnected players that may
@@ -1987,7 +1998,7 @@ qboolean CG_GetTagOrientationFromPlayerEntity( centity_t *cent, char *tagName, o
 	// multiple corpses on the level using the same clientinfo
 	clientNum = cent->currentState.clientNum;
 	if ( clientNum < 0 || clientNum >= MAX_CLIENTS ) {
-		CG_Error( "Bad clientNum on player entity" );
+		return qfalse;
 	}
 	
 	// It is possible to see corpses from disconnected players that may

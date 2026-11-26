@@ -1,11 +1,13 @@
 /*
  * Regression tests for the hardened client chat/message helpers.
  *
- * The helpers live in Source/Game/CGame/cg_chat.h so they can be exercised
- * without pulling in the whole cgame module. Q_strncpyz is stubbed here; the
+ * The helpers live in Source/Game/CGame/cg_chat.h and cg_teamchat.h so they
+ * can be exercised without pulling in the whole cgame module. Q_strncpyz is
+ * stubbed here; the
  * actual allocator/string implementation is covered by the other test targets.
  */
 #include "../Game/CGame/cg_chat.h"
+#include "../Game/CGame/cg_teamchat.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -108,6 +110,62 @@ static void test_speaker_names( void ) {
 	CHECK( name[0] == '\0' );
 }
 
+static void test_team_lines( void ) {
+	char line[241];
+	char tiny[2];
+	char spam[301];
+	char color[16];
+	char lastColor;
+	size_t consumed;
+	int i;
+
+	// All-escape input used to advance the write pointer without ever
+	// reaching the visible-width limit. The byte budget must stop it.
+	for ( i = 0; i < (int)sizeof( spam ) - 1; i += 2 ) {
+		spam[i] = Q_COLOR_ESCAPE;
+		spam[i + 1] = '1';
+	}
+	spam[sizeof( spam ) - 1] = '\0';
+
+	consumed = CG_ChatBuildTeamLine( spam, line, sizeof( line ), 80, &lastColor );
+	CHECK( consumed > 0 );
+	CHECK( consumed <= sizeof( spam ) - 1 );
+	CHECK( strlen( line ) < sizeof( line ) );
+	CHECK( line[0] == Q_COLOR_ESCAPE );
+	CHECK( line[1] >= '0' && line[1] <= '7' );
+
+	// Word wrapping rewinds to the last space and keeps control bytes out.
+	lastColor = COLOR_WHITE;
+	consumed = CG_ChatBuildTeamLine( "1234 5678 90", line, sizeof( line ), 8, &lastColor );
+	CHECK( consumed == 5 );
+	CHECK( strcmp( line, "^71234 " ) == 0 );
+	consumed = CG_ChatBuildTeamLine( "1234 5678 90" + consumed, line, sizeof( line ), 8, &lastColor );
+	CHECK( consumed > 0 );
+	CHECK( strcmp( line, "^75678 90" ) == 0 );
+
+	// Colour state carries across wrapped lines.
+	lastColor = COLOR_WHITE;
+	consumed = CG_ChatBuildTeamLine( "^3abcdef", line, 64, 2, &lastColor );
+	CHECK( consumed == 4 );
+	CHECK( strcmp( line, "^7^3ab" ) == 0 );
+	CHECK( lastColor == '3' );
+	Q_strncpyz( color, "^3abcdef" + consumed, sizeof( color ) );
+	CG_ChatBuildTeamLine( color, line, 64, 2, &lastColor );
+	CHECK( strcmp( line, "^3cd" ) == 0 );
+
+	lastColor = COLOR_WHITE;
+	CG_ChatBuildTeamLine( "a\r\n\x01\x7f!b", line, sizeof( line ), 80, &lastColor );
+	CHECK( strcmp( line, "^7a    !b" ) == 0 );
+
+	// A zero/one byte destination cannot be overrun and makes no progress.
+	line[0] = 'X';
+	CHECK( CG_ChatBuildTeamLine( "abc", NULL, sizeof( line ), 80, &lastColor ) == 0 );
+	CHECK( CG_ChatBuildTeamLine( "abc", line, 0, 80, &lastColor ) == 0 );
+	CHECK( line[0] == 'X' );
+	CHECK( CG_ChatBuildTeamLine( "abc", tiny, sizeof( tiny ), 80, &lastColor ) == 1 );
+	CHECK( strlen( tiny ) == 1 );
+}
+
 static void test_message_slots( void ) {
 	char messages[3][8];
 	int clients[3];
@@ -162,6 +220,7 @@ int main( void ) {
 
 	test_color_strings();
 	test_copy_text();
+	test_team_lines();
 	test_speaker_names();
 	test_message_slots();
 

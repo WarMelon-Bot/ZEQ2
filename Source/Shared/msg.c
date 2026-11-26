@@ -198,22 +198,37 @@ int MSG_ReadBits( msg_t *msg, int bits ) {
 	}
 
 	if (msg->oob) {
+		int bytes;
+
+		if ( bits != 8 && bits != 16 && bits != 32 ) {
+			Com_Error(ERR_DROP, "can't read %d bits\n", bits);
+		}
+		bytes = bits / 8;
+		if ( msg->cursize < 0 || msg->readcount < 0 ||
+		     bytes > msg->cursize - msg->readcount ) {
+			// Out-of-band packets are untrusted (connectionless traffic).
+			// Never read past the received bytes just because the packet
+			// header claims more fields.
+			msg->overflowed = qtrue;
+			return 0;
+		}
+
 		if (bits==8) {
 			value = msg->data[msg->readcount];
 			msg->readcount += 1;
 			msg->bit += 8;
 		} else if (bits==16) {
-			unsigned short *sp = (unsigned short *)&msg->data[msg->readcount];
-			value = LittleShort(*sp);
+			value = (int)( (unsigned int)msg->data[msg->readcount] |
+			               ((unsigned int)msg->data[msg->readcount + 1] << 8) );
 			msg->readcount += 2;
 			msg->bit += 16;
-		} else if (bits==32) {
-			unsigned int *ip = (unsigned int *)&msg->data[msg->readcount];
-			value = LittleLong(*ip);
+		} else {
+			value = (int)( (unsigned int)msg->data[msg->readcount] |
+			               ((unsigned int)msg->data[msg->readcount + 1] << 8) |
+			               ((unsigned int)msg->data[msg->readcount + 2] << 16) |
+			               ((unsigned int)msg->data[msg->readcount + 3] << 24) );
 			msg->readcount += 4;
 			msg->bit += 32;
-		} else {
-			Com_Error(ERR_DROP, "can't read %d bits\n", bits);
 		}
 	} else {
 		nbits = 0;

@@ -652,6 +652,23 @@ qboolean CL_ShouldIgnoreVoipSender(int sender)
 }
 
 /*
+ * Skip a VoIP payload without trusting its length. Used on every early-return
+ * path so the next server command in the packet is parsed from the right byte.
+ */
+static void CL_SkipVoipPayload( msg_t *msg, int packetsize ) {
+	char encoded[1024];
+
+	while ( packetsize > 0 ) {
+		int br = packetsize;
+		if ( br > (int)sizeof( encoded ) ) {
+			br = (int)sizeof( encoded );
+		}
+		MSG_ReadData( msg, encoded, br );
+		packetsize -= br;
+	}
+}
+
+/*
 =====================
 CL_ParseVoip
 
@@ -668,41 +685,30 @@ void CL_ParseVoip ( msg_t *msg ) {
 	const int frames = MSG_ReadByte(msg);
 	const int packetsize = MSG_ReadShort(msg);
 	char encoded[1024];
-	int seqdiff = sequence - clc.voipIncomingSequence[sender];
+	int seqdiff;
 	int written = 0;
 	int i;
 
 	Com_DPrintf("VoIP: %d-byte packet from client %d\n", packetsize, sender);
 
-	if (sender < 0)
+	// Validate the sender before using it as an index into the per-client
+	// arrays. The old code read voipIncomingSequence[sender] first.
+	if ( sender < 0 || sender >= MAX_CLIENTS || generation < 0 ||
+	     sequence < 0 || frames < 0 || packetsize < 0 ) {
+		CL_SkipVoipPayload( msg, packetsize );
 		return;   // short/invalid packet, bail.
-	else if (generation < 0)
-		return;   // short/invalid packet, bail.
-	else if (sequence < 0)
-		return;   // short/invalid packet, bail.
-	else if (frames < 0)
-		return;   // short/invalid packet, bail.
-	else if (packetsize < 0)
-		return;   // short/invalid packet, bail.
+	}
 
-	if (packetsize > sizeof (encoded)) {  // overlarge packet?
-		int bytesleft = packetsize;
-		while (bytesleft) {
-			int br = bytesleft;
-			if (br > sizeof (encoded))
-				br = sizeof (encoded);
-			MSG_ReadData(msg, encoded, br);
-			bytesleft -= br;
-		}
+	if (packetsize > (int)sizeof (encoded)) {  // overlarge packet?
+		CL_SkipVoipPayload( msg, packetsize );
 		return;   // overlarge packet, bail.
 	}
+
+	seqdiff = sequence - clc.voipIncomingSequence[sender];
 
 	if (!clc.speexInitialized) {
 		MSG_ReadData(msg, encoded, packetsize);  // skip payload.
 		return;   // can't handle VoIP without libspeex!
-	} else if (sender >= MAX_CLIENTS) {
-		MSG_ReadData(msg, encoded, packetsize);  // skip payload.
-		return;   // bogus sender.
 	} else if (CL_ShouldIgnoreVoipSender(sender)) {
 		MSG_ReadData(msg, encoded, packetsize);  // skip payload.
 		return;   // Channel is muted, bail.
@@ -738,7 +744,21 @@ void CL_ParseVoip ( msg_t *msg ) {
 		            seqdiff, sender);
 		// tell speex that we're missing frames...
 		for (i = 0; i < seqdiff; i++) {
-			assert((written + clc.speexFrameSize) * 2 < sizeof (decoded));
+			// A debug-only assert used to be the only guard here. A server
+			// could request up to 100 missing frames and write far past
+			// decoded[] in release builds, or abort the client in debug.
+			if ( clc.speexFrameSize <= 0 ||
+			     (written + clc.speexFrameSize) * 2 > (int)sizeof (decoded) ) {
+				if ( written > 0 ) {
+					S_RawSamples(sender + 1, written, clc.speexSampleRate, 2, 1,
+					             (const byte *) decoded, clc.voipGain[sender]);
+					written = 0;
+				}
+				if ( clc.speexFrameSize <= 0 ||
+				     clc.speexFrameSize * 2 > (int)sizeof (decoded) ) {
+					break;
+				}
+			}
 			speex_decode_int(clc.speexDecoder[sender], NULL, decoded + written);
 			written += clc.speexFrameSize;
 		}
@@ -809,6 +829,12 @@ void CL_ParseCommandString( msg_t *msg ) {
 
 	// see if we have already executed stored it off
 	if ( clc.serverCommandSequence >= seq ) {
+		return;
+	}
+	// A server must not be able to make cgame loop toward INT_MAX and force
+	// ERR_DROP when the reliable command window is cycled out.
+	if ( (long long)seq - (long long)clc.serverCommandSequence >= MAX_RELIABLE_COMMANDS ) {
+		Com_DPrintf( "CL_ParseCommandString: ignoring out-of-range sequence %i\n", seq );
 		return;
 	}
 	clc.serverCommandSequence = seq;
