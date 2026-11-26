@@ -24,6 +24,7 @@
 struct android_app *sys_androidApp = NULL;
 
 static qboolean androidDestroyed = qfalse;
+static qboolean androidInputReady = qfalse;
 static qboolean softInputVisible = qfalse;
 static int pointerIds[ MAX_ANDROID_POINTERS ];
 static float pointerLastX[ MAX_ANDROID_POINTERS ];
@@ -91,10 +92,14 @@ static void Android_OnAppCmd( struct android_app *app, int32_t cmd )
 
 	switch ( cmd ) {
 	case APP_CMD_INIT_WINDOW:
-		Com_Printf( "Android window created\n" );
+		/* Looper events are pumped during startup, before the engine's
+		 * console exists, so log directly instead of using Com_Printf. */
+		__android_log_print( ANDROID_LOG_INFO, ANDROID_INPUT_LOG_TAG,
+			"Android window created" );
 		break;
 	case APP_CMD_TERM_WINDOW:
-		Com_Printf( "Android window destroyed\n" );
+		__android_log_print( ANDROID_LOG_INFO, ANDROID_INPUT_LOG_TAG,
+			"Android window destroyed" );
 		Touch_PointerCancelAll();
 		break;
 	case APP_CMD_PAUSE:
@@ -363,7 +368,10 @@ static int32_t Android_OnMotionEvent( struct android_app *app, AInputEvent *even
 
 static int32_t Android_OnInputEvent( struct android_app *app, AInputEvent *event )
 {
-	if ( !event ) {
+	/* Startup pumps looper events while assets are extracted and while the
+	 * EGL surface is being created.  The engine's event queue and touch layer
+	 * do not exist yet, so drop input until IN_Init has run. */
+	if ( !event || !androidInputReady ) {
 		return 0;
 	}
 
@@ -398,6 +406,7 @@ Input subsystem entry points used by sys_main.c
 */
 void IN_Init( void )
 {
+	androidInputReady = qtrue;
 	Cmd_AddCommand( "android_keyboard", Android_Keyboard_f );
 }
 
@@ -411,6 +420,7 @@ void IN_Frame( void )
 
 void IN_Shutdown( void )
 {
+	androidInputReady = qfalse;
 	Touch_PointerCancelAll();
 	if ( softInputVisible && sys_androidApp && sys_androidApp->activity ) {
 		ANativeActivity_hideSoftInput( sys_androidApp->activity, 0 );

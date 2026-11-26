@@ -28,7 +28,10 @@ Environment overrides:
 The build script also builds the game QVMs with the host compiler and packages
 them as assets.  On first launch the native activity extracts all bundled
 assets into the application's private data directory and points
-`fs_basepath`/`fs_homepath` at it.
+`fs_basepath`/`fs_homepath` at it.  Extraction keeps draining the NativeActivity
+looper so a slow device (or a large bundled `.pk3`) cannot trigger an
+"app isn't responding" dialog before the engine starts.  The marker file is
+written only after every asset was extracted successfully.
 
 ## Game data
 
@@ -64,7 +67,12 @@ without needing a hardware keyboard or console.
 
 - Graphics use native EGL + OpenGL ES 1.x.  A small compatibility header maps
   desktop GL names and implements the immediate-mode subset used by the old
-  renderer and the touch overlay.
+  renderer and the touch overlay.  `GLimp_Init` installs the renderer's runtime
+  `qgl` dispatch table after the EGL context is current; without it the first
+  `qgl*` call dereferenced a NULL pointer and killed startup.
+- Fatal signals on Android exit directly instead of running the full engine
+  shutdown from a signal handler, which could deadlock against the UI thread
+  waiting on NativeActivity's looper.
 - Input comes from NativeActivity: touch pointers feed the shared touch layer,
   while hardware keyboards/mice feed the normal `SE_KEY`/`SE_MOUSE` queue.
 - Audio starts with a null DMA backend, so the game runs without sound while a

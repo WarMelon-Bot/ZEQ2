@@ -43,6 +43,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 
 #ifdef ANDROID
 #	include <android/log.h>
+#	include <unistd.h>
 #	define SYS_LOG_TAG "ZEQ2"
 #endif
 
@@ -536,6 +537,17 @@ Sys_SigHandler
 void Sys_SigHandler( int signal )
 {
 	static qboolean signalcaught = qfalse;
+
+#ifdef ANDROID
+	/*
+	 * NativeActivity's UI thread may be waiting on the app glue's looper
+	 * mutex when a native fault occurs on the engine thread.  Running the
+	 * full CL/SV shutdown here is not async-signal-safe and can deadlock the
+	 * process into an "app not responding" dialog.  Exit directly; debuggerd
+	 * already records the fault in logcat.
+	 */
+	_exit( ( signal == SIGTERM || signal == SIGINT ) ? 1 : 2 );
+#endif
 
 	if( signalcaught )
 	{
