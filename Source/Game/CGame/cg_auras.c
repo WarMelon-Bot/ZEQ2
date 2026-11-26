@@ -797,7 +797,6 @@ void CG_AddAuraToScene( centity_t *player){
 	// Get the aura system corresponding to the player
 	clientNum = player->currentState.clientNum;
 	if(clientNum < 0 || clientNum >= MAX_CLIENTS){
-		CG_Error( "Bad clientNum on player entity");
 		return;
 	}
 	state = &auraStates[ clientNum ];
@@ -836,7 +835,6 @@ void CG_AuraStart( centity_t *player){
 	// Get the aura system corresponding to the player
 	clientNum = player->currentState.clientNum;
 	if(clientNum < 0 || clientNum >= MAX_CLIENTS){
-		CG_Error( "Bad clientNum on player entity");
 		return;
 	}
 	state = &auraStates[ clientNum ];
@@ -889,7 +887,7 @@ void CG_AuraEnd( centity_t *player){
 
 	clientNum = player->currentState.clientNum;
 	if(clientNum < 0 || clientNum >= MAX_CLIENTS){
-		CG_Error( "Bad clientNum on player entity");
+		return;
 	}
 
 	state = &auraStates[ clientNum ];

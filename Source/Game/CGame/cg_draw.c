@@ -559,6 +559,21 @@ void CG_DrawHUD(playerState_t *ps,int clientNum,int x,int y,qboolean flipped){
 	vec4_t	plFatigueHealthColor = {0.5f,0.16f,0.16f,1.0f};
 	vec4_t	plFatigueColor = {0.4f,0.4f,0.5f,1.0f};
 	vec3_t	angles;
+	const clientInfo_t *hudInfo;
+	int tier;
+
+	multiplier = 1.0f;
+	if ( clientNum >= 0 && clientNum < MAX_CLIENTS ) {
+		hudInfo = &cgs.clientinfo[clientNum];
+		tier = hudInfo->tierCurrent;
+		if ( tier >= 0 && tier < (int)(sizeof( hudInfo->tierConfig ) / sizeof( hudInfo->tierConfig[0] )) ) {
+			multiplier = hudInfo->tierConfig[tier].hudMultiplier;
+		}
+	}
+	if ( multiplier <= 0 ) {
+		multiplier = 1.0f;
+	}
+
 	CG_DrawHorGauge(x+60,y+41,200,16,powerColor,dullColor,ps->powerLevel[plCurrent],ps->powerLevel[plMaximum],qfalse);	
 	CG_DrawRightGauge(x+60,y+41,200,16,plFatigueColor,plFatigueColor,ps->powerLevel[plFatigue],ps->powerLevel[plMaximum]);
 	CG_DrawRightGauge(x+60,y+41,200,16,limitColor,limitColor,ps->powerLevel[plHealth],ps->powerLevel[plMaximum]);
@@ -576,10 +591,6 @@ void CG_DrawHUD(playerState_t *ps,int clientNum,int x,int y,qboolean flipped){
 	if(ps->powerLevel[plCurrent] == 9001){
 		powerLevelString = "Over ^3NINE-THOUSAND!!!";
 	}
-	multiplier = cgs.clientinfo[clientNum].tierConfig[cgs.clientinfo[clientNum].tierCurrent].hudMultiplier;
-	if(multiplier <= 0){
-		multiplier = 1.0;
-	}
 	powerLevelDisplay = (float)ps->powerLevel[plCurrent] * multiplier;
 	powerLevelString = powerLevelDisplay >= 1000000 ? va("%.1f ^3mil",(float)powerLevelDisplay / 1000000.0) : va("%i",powerLevelDisplay);
 	powerLevelOffset = (Q_PrintStrlen(powerLevelString)-2)*8;
@@ -590,7 +601,13 @@ static void CG_DrawStatusBar( void ) {
 	float			tierLast,tierNext,tier;
 	clientInfo_t	*ci;
 	tierConfig_cg	*activeTier;
+	int				numTiers;
 
+	numTiers = sizeof( cgs.clientinfo[0].tierConfig ) / sizeof( cgs.clientinfo[0].tierConfig[0] );
+
+	if ( cg.snap->ps.clientNum < 0 || cg.snap->ps.clientNum >= MAX_CLIENTS ) {
+		return;
+	}
 	ci = &cgs.clientinfo[cg.snap->ps.clientNum];
 	ps = &cg.snap->ps;
 	if((ci->lockStartTimer > cg.time) /*(&& cg.time > ci->lockStartTimer - 500)*/){
@@ -602,7 +619,8 @@ static void CG_DrawStatusBar( void ) {
 	if(cg_drawStatus.integer == 0){return;}
 	tier = (float)ps->powerLevel[plTierCurrent];
 	CG_CheckChat();
-	if(ps->lockedTarget > 0 && cgs.clientinfo[ps->lockedTarget-1].infoValid){
+	if(ps->lockedTarget > 0 && ps->lockedTarget <= MAX_CLIENTS &&
+	   cgs.clientinfo[ps->lockedTarget-1].infoValid){
 		lockedTargetPS.clientNum = ps->lockedTarget-1;
 		lockedTargetPS.powerLevel[plCurrent] = ps->lockedPlayerData[lkPowerCurrent];
 		lockedTargetPS.powerLevel[plHealth] = ps->lockedPlayerData[lkPowerHealth];
@@ -614,7 +632,7 @@ static void CG_DrawStatusBar( void ) {
 	}
 	else{
 		CG_DrawHUD(ps,ps->clientNum,0,408,qfalse);
-		if(tier){
+		if(tier && ci->tierCurrent >= 0 && ci->tierCurrent < numTiers){
 			activeTier = &ci->tierConfig[ci->tierCurrent];
 			tierLast = 32767;
 			if(activeTier->sustainCurrent && activeTier->sustainCurrent < tierLast){tierLast = (float)activeTier->sustainCurrent;}
@@ -626,7 +644,7 @@ static void CG_DrawStatusBar( void ) {
 				CG_DrawPic(qfalse,(187*tierLast)+60,428,13,38,cgs.media.markerDescendShader);
 			}
 		}
-		if(tier < ps->powerLevel[plTierTotal]){
+		if(tier < ps->powerLevel[plTierTotal] && ci->tierCurrent >= 0 && ci->tierCurrent < numTiers - 1){
 			activeTier = &ci->tierConfig[ci->tierCurrent+1];
 			tierNext = 0;
 			if(activeTier->requirementCurrent && activeTier->requirementCurrent > tierNext){tierNext = (float)activeTier->requirementCurrent;}
@@ -774,6 +792,9 @@ static float CG_DrawTeamOverlay( float y, qboolean right, qboolean upper ) {
 	pwidth = 0;
 	count = (numSortedTeamPlayers > 8) ? 8 : numSortedTeamPlayers;
 	for (i = 0; i < count; i++) {
+		if ( sortedTeamPlayers[i] < 0 || sortedTeamPlayers[i] >= MAX_CLIENTS ) {
+			continue;
+		}
 		ci = cgs.clientinfo + sortedTeamPlayers[i];
 		if ( ci->infoValid && ci->team == cg.snap->ps.persistant[PERS_TEAM]) {
 			plyrs++;
@@ -834,6 +855,9 @@ static float CG_DrawTeamOverlay( float y, qboolean right, qboolean upper ) {
 	trap_R_SetColor( NULL );
 
 	for (i = 0; i < count; i++) {
+		if ( sortedTeamPlayers[i] < 0 || sortedTeamPlayers[i] >= MAX_CLIENTS ) {
+			continue;
+		}
 		ci = cgs.clientinfo + sortedTeamPlayers[i];
 		if ( ci->infoValid && ci->team == cg.snap->ps.persistant[PERS_TEAM]) {
 
@@ -846,7 +870,11 @@ static float CG_DrawTeamOverlay( float y, qboolean right, qboolean upper ) {
 				TINYCHAR_WIDTH, TINYCHAR_HEIGHT, TEAM_OVERLAY_MAXNAME_WIDTH);
 
 			if (lwidth) {
-				p = CG_ConfigString(CS_LOCATIONS + ci->location);
+				if ( ci->location >= 0 && ci->location < MAX_LOCATIONS ) {
+					p = CG_ConfigString(CS_LOCATIONS + ci->location);
+				} else {
+					p = NULL;
+				}
 				if (!p || !*p)
 					p = "unknown";
 				len = CG_DrawStrlen(p);

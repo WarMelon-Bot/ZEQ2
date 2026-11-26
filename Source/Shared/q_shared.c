@@ -81,19 +81,24 @@ COM_StripExtension
 ============
 */
 void COM_StripExtension( const char *in, char *out, int destsize ) {
-	int             length;
+	size_t length;
+
+	if ( !in || !out || destsize <= 0 ) {
+		return;
+	}
 
 	Q_strncpyz(out, in, destsize);
 
-	length = strlen(out)-1;
-	while (length > 0 && out[length] != '.')
-	{
-		length--;
-		if (out[length] == '/')
+	length = strlen(out);
+	while ( length > 0 && out[length - 1] != '.' ) {
+		if ( out[length - 1] == '/' ) {
 			return;		// no extension
+		}
+		length--;
 	}
-	if (length)
-		out[length] = 0;
+	if ( length > 0 ) {
+		out[length - 1] = 0;
+	}
 }
 
 
@@ -105,12 +110,23 @@ COM_DefaultExtension
 void COM_DefaultExtension (char *path, int maxSize, const char *extension ) {
 	char	oldPath[MAX_QPATH];
 	char    *src;
+	size_t	length;
+
+	if ( !path || !extension || maxSize <= 0 ) {
+		return;
+	}
 
 //
 // if path doesn't have a .EXT, append extension
 // (extension should include the .)
 //
-	src = path + strlen(path) - 1;
+	length = strlen(path);
+	if ( length == 0 ) {
+		Q_strncpyz( path, extension, maxSize );
+		return;
+	}
+
+	src = path + length - 1;
 
 	while (*src != '/' && src != path) {
 		if ( *src == '.' ) {

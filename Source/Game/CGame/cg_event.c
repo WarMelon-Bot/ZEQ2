@@ -94,7 +94,7 @@ static void CG_Obituary( entityState_t *ent ) {
 	attacker = ent->otherEntityNum2;
 
 	if ( target < 0 || target >= MAX_CLIENTS ) {
-		CG_Error( "CG_Obituary: target out of range" );
+		return;
 	}
 	if ( attacker < 0 || attacker >= MAX_CLIENTS ) {
 		attacker = ENTITYNUM_WORLD;
@@ -601,7 +601,7 @@ void CG_EntityEvent( centity_t *cent, vec3_t position ) {
 		break;
 	default:
 		DEBUGNAME("UNKNOWN");
-		CG_Error( "Unknown event: %i", event );
+		// Ignore unknown server events instead of dropping the connection.
 		break;
 	}
 

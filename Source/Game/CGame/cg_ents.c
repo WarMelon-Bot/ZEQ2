@@ -1155,7 +1155,7 @@ static void CG_AddCEntity( centity_t *cent ) {
 
 	switch ( cent->currentState.eType ) {
 	default:
-		CG_Error( "Bad entity type: %i\n", cent->currentState.eType );
+		// Ignore unknown server entity types instead of dropping the connection.
 		break;
 	case ET_GENERAL:
 		CG_General( cent );

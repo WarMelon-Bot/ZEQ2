@@ -25,6 +25,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 // be a valid snapshot this frame
 
 #include "cg_local.h"
+#include "cg_teamchat.h"
 #include "../UI/menudef/menudef.h"
 
 typedef struct {
@@ -116,26 +117,34 @@ CG_ParseTeamInfo
 static void CG_ParseTeamInfo( void ) {
 	int		i;
 	int		client;
+	int		location;
 
 	numSortedTeamPlayers = atoi( CG_Argv( 1 ) );
-	if( numSortedTeamPlayers < 0 || numSortedTeamPlayers > TEAM_MAXOVERLAY )
-	{
-		CG_Error( "CG_ParseTeamInfo: numSortedTeamPlayers out of range (%d)",
-				numSortedTeamPlayers );
-		return;
+	// A bad server must never be able to drop the client with CG_Error or
+	// leave stale client indexes in the overlay. Clamp and skip bad entries.
+	if ( numSortedTeamPlayers < 0 ) {
+		numSortedTeamPlayers = 0;
+	} else if ( numSortedTeamPlayers > TEAM_MAXOVERLAY ) {
+		numSortedTeamPlayers = TEAM_MAXOVERLAY;
+	}
+
+	for ( i = 0 ; i < TEAM_MAXOVERLAY ; i++ ) {
+		sortedTeamPlayers[i] = -1;
 	}
 
 	for ( i = 0 ; i < numSortedTeamPlayers ; i++ ) {
 		client = atoi( CG_Argv( i * 6 + 2 ) );
-		if( client < 0 || client >= MAX_CLIENTS )
-		{
-		  CG_Error( "CG_ParseTeamInfo: bad client number: %d", client );
-		  return;
+		if ( client < 0 || client >= MAX_CLIENTS ) {
+			continue;
 		}
 
 		sortedTeamPlayers[i] = client;
 
-		cgs.clientinfo[ client ].location = atoi( CG_Argv( i * 6 + 3 ) );
+		location = atoi( CG_Argv( i * 6 + 3 ) );
+		if ( location < 0 || location >= MAX_LOCATIONS ) {
+			location = 0;
+		}
+		cgs.clientinfo[ client ].location = location;
 		cgs.clientinfo[ client ].armor = atoi( CG_Argv( i * 6 + 5 ) );
 		cgs.clientinfo[ client ].curWeapon = atoi( CG_Argv( i * 6 + 6 ) );
 		cgs.clientinfo[ client ].powerups = atoi( CG_Argv( i * 6 + 7 ) );
@@ -164,6 +173,13 @@ void CG_ParseServerinfo( void ) {
 	cgs.capturelimit = atoi( Info_ValueForKey( info, "capturelimit" ) );
 	cgs.timelimit = atoi( Info_ValueForKey( info, "timelimit" ) );
 	cgs.maxclients = atoi( Info_ValueForKey( info, "sv_maxclients" ) );
+	// The server controls this value but cgs.clientinfo is fixed size. Clamp it
+	// so deferred-player loading and HUD loops cannot walk off the end.
+	if ( cgs.maxclients < 0 ) {
+		cgs.maxclients = 0;
+	} else if ( cgs.maxclients > MAX_CLIENTS ) {
+		cgs.maxclients = MAX_CLIENTS;
+	}
 	mapname = Info_ValueForKey( info, "mapname" );
 	Com_sprintf( cgs.mapname, sizeof( cgs.mapname ), "maps/%s.bsp", mapname );
 	Q_strncpyz( cgs.redTeam, Info_ValueForKey( info, "g_redTeam" ), sizeof(cgs.redTeam) );
@@ -223,38 +239,67 @@ void CG_SetConfigValues( void ) {
 CG_ShaderStateChanged
 =====================
 */
+/*
+ * Copy one server supplied token without trusting its length. The parser
+ * below used to pass an unchecked pointer difference to strncpy(), letting a
+ * long CS_SHADERSTATE value overflow these small stack buffers.
+ */
+static qboolean CG_CopyShaderToken( char *dest, size_t destSize,
+                                    const char *start, const char *end ) {
+	size_t len;
+
+	if ( !dest || !start || !end || destSize == 0 || end <= start ) {
+		return qfalse;
+	}
+	len = (size_t)( end - start );
+	if ( len >= destSize ) {
+		return qfalse;
+	}
+	memcpy( dest, start, len );
+	dest[len] = '\0';
+	return qtrue;
+}
+
 void CG_ShaderStateChanged(void) {
 	char originalShader[MAX_QPATH];
 	char newShader[MAX_QPATH];
 	char timeOffset[16];
 	const char *o;
-	char *n,*t;
+	const char *n;
+	const char *t;
 
 	o = CG_ConfigString( CS_SHADERSTATE );
 	while (o && *o) {
-		n = strstr(o, "=");
-		if (n && *n) {
-			strncpy(originalShader, o, n-o);
-			originalShader[n-o] = 0;
-			n++;
-			t = strstr(n, ":");
-			if (t && *t) {
-				strncpy(newShader, n, t-n);
-				newShader[t-n] = 0;
-			} else {
-				break;
-			}
-			t++;
-			o = strstr(t, "@");
-			if (o) {
-				strncpy(timeOffset, t, o-t);
-				timeOffset[o-t] = 0;
-				o++;
-				trap_R_RemapShader( originalShader, newShader, timeOffset );
-			}
-		} else {
+		n = strchr(o, '=');
+		if ( !n || !n[1] ) {
 			break;
 		}
+		if ( !CG_CopyShaderToken( originalShader, sizeof( originalShader ), o, n ) ) {
+			o = n + 1;
+			continue;
+		}
+		n++;
+
+		t = strchr(n, ':');
+		if ( !t || !t[1] ) {
+			break;
+		}
+		if ( !CG_CopyShaderToken( newShader, sizeof( newShader ), n, t ) ) {
+			o = t + 1;
+			continue;
+		}
+		t++;
+
+		o = strchr(t, '@');
+		if ( !o ) {
+			break;
+		}
+		if ( !CG_CopyShaderToken( timeOffset, sizeof( timeOffset ), t, o ) ) {
+			o++;
+			continue;
+		}
+		o++;
+		trap_R_RemapShader( originalShader, newShader, timeOffset );
 	}
 }
 
@@ -312,7 +357,8 @@ static void CG_ConfigStringModified( void ) {
 		cgs.teamVoteNo[num-CS_TEAMVOTE_NO] = atoi( str );
 		cgs.teamVoteModified[num-CS_TEAMVOTE_NO] = qtrue;
 	} else if ( num >= CS_TEAMVOTE_STRING && num <= CS_TEAMVOTE_STRING + 1) {
-		Q_strncpyz( cgs.teamVoteString[num-CS_TEAMVOTE_STRING], str, sizeof( cgs.teamVoteString ) );
+		Q_strncpyz( cgs.teamVoteString[num-CS_TEAMVOTE_STRING], str,
+		            sizeof( cgs.teamVoteString[0] ) );
 #ifdef MISSIONPACK
 		trap_S_StartLocalSound( cgs.media.voteNow, CHAN_ANNOUNCER );
 #endif
@@ -353,9 +399,8 @@ CG_AddToTeamChat
 =======================
 */
 static void CG_AddToTeamChat( const char *str ) {
-	int len;
-	char *p, *ls;
-	int lastcolor;
+	char lastColor = COLOR_WHITE;
+	size_t offset = 0;
 	int chatHeight;
 
 	if (cg_teamChatHeight.integer < TEAMCHAT_HEIGHT) {
@@ -364,59 +409,31 @@ static void CG_AddToTeamChat( const char *str ) {
 		chatHeight = TEAMCHAT_HEIGHT;
 	}
 
-	if (chatHeight <= 0 || cg_teamChatTime.integer <= 0) {
+	if (chatHeight <= 0 || cg_teamChatTime.integer <= 0 || !str || !*str) {
 		// team chat disabled, dump into normal chat
 		cgs.teamChatPos = cgs.teamLastChatPos = 0;
 		return;
 	}
 
-	len = 0;
+	while (str[offset]) {
+		char *line;
+		size_t consumed;
 
-	p = cgs.teamChatMsgs[cgs.teamChatPos % chatHeight];
-	*p = 0;
-
-	lastcolor = '7';
-
-	ls = NULL;
-	while (*str) {
-		if (len > TEAMCHAT_WIDTH - 1) {
-			if (ls) {
-				str -= (p - ls);
-				str++;
-				p -= (p - ls);
-			}
-			*p = 0;
-
-			cgs.teamChatMsgTimes[cgs.teamChatPos % chatHeight] = cg.time;
-
-			cgs.teamChatPos++;
-			p = cgs.teamChatMsgs[cgs.teamChatPos % chatHeight];
-			*p = 0;
-			*p++ = Q_COLOR_ESCAPE;
-			*p++ = lastcolor;
-			len = 0;
-			ls = NULL;
+		line = cgs.teamChatMsgs[cgs.teamChatPos % chatHeight];
+		consumed = CG_ChatBuildTeamLine( str + offset, line, sizeof( cgs.teamChatMsgs[0] ),
+		                                 TEAMCHAT_WIDTH, &lastColor );
+		if ( consumed == 0 ) {
+			break;
 		}
 
-		if ( Q_IsColorString( str ) ) {
-			*p++ = *str++;
-			lastcolor = *str;
-			*p++ = *str++;
-			continue;
+		cgs.teamChatMsgTimes[cgs.teamChatPos % chatHeight] = cg.time;
+		cgs.teamChatPos++;
+		offset += consumed;
+
+		if ( cgs.teamChatPos - cgs.teamLastChatPos > chatHeight ) {
+			cgs.teamLastChatPos = cgs.teamChatPos - chatHeight;
 		}
-		if (*str == ' ') {
-			ls = p;
-		}
-		*p++ = *str++;
-		len++;
 	}
-	*p = 0;
-
-	cgs.teamChatMsgTimes[cgs.teamChatPos % chatHeight] = cg.time;
-	cgs.teamChatPos++;
-
-	if (cgs.teamChatPos - cgs.teamLastChatPos > chatHeight)
-		cgs.teamLastChatPos = cgs.teamChatPos - chatHeight;
 }
 
 /*
@@ -888,6 +905,11 @@ void CG_VoiceChatLocal( int mode, qboolean voiceOnly, int clientNum, int color, 
 	if ( clientNum < 0 || clientNum >= MAX_CLIENTS ) {
 		clientNum = 0;
 	}
+	// The server supplies this as an integer but it is interpolated as a
+	// colour character below. Reject arbitrary bytes before chat formatting.
+	if ( color < (int)'0' || color > (int)'7' ) {
+		color = COLOR_WHITE;
+	}
 	ci = &cgs.clientinfo[ clientNum ];
 
 	cgs.currentVoiceClient = clientNum;
@@ -959,6 +981,49 @@ static void CG_RemoveChatEscapeChar( char *text ) {
 		text[l++] = text[i];
 	}
 	text[l] = '\0';
+}
+
+/*
+ * Radar messages are comma-separated server data. Never dereference a
+ * missing separator or read beyond an argument when the server sends a
+ * truncated record.
+ */
+static const char *CG_NextRadarField( const char *ptr ) {
+	const char *comma;
+
+	if ( !ptr ) {
+		return NULL;
+	}
+	comma = strchr( ptr, ',' );
+	return comma ? comma + 1 : NULL;
+}
+
+static int CG_RadarFieldInt( const char **ptr ) {
+	int value;
+
+	if ( !ptr || !*ptr || !**ptr ) {
+		if ( ptr ) {
+			*ptr = NULL;
+		}
+		return 0;
+	}
+	value = atoi( *ptr );
+	*ptr = CG_NextRadarField( *ptr );
+	return value;
+}
+
+static float CG_RadarFieldFloat( const char **ptr ) {
+	float value;
+
+	if ( !ptr || !*ptr || !**ptr ) {
+		if ( ptr ) {
+			*ptr = NULL;
+		}
+		return 0.0f;
+	}
+	value = (float)atof( *ptr );
+	*ptr = CG_NextRadarField( *ptr );
+	return value;
 }
 
 /*
@@ -1078,93 +1143,47 @@ static void CG_ServerCommand( void ) {
 		int count;
 		int i;
 		const char *ptr;
-
-		// expand the string into our settings
+		radar_t *blip;
 
 		// clear out old list
 		memset( cg_playerOrigins, 0, sizeof(cg_playerOrigins) );
 
-		// get amount in current list
-		count = atof( CG_Argv( 1 ) );
+		// Server supplied counts are untrusted: never write outside the
+		// fixed-size radar array and never dereference a missing argument.
+		count = atoi( CG_Argv( 1 ) );
+		if ( count < 0 ) {
+			count = 0;
+		} else if ( count > MAX_CLIENTS ) {
+			count = MAX_CLIENTS;
+		}
 
-		for( i = 0; i < count ; i++ ) {
-			// set the string pointer to the correct set of parameters
-			ptr = CG_Argv(i + 2);
-
-			//read in the clientNum
-			cg_playerOrigins[i].clientNum = atof(ptr);
-
-			//move the ptr on until we come to a comma
-			ptr = strchr(ptr, ',');
-
-			//skip over the comma
-			ptr++;
-
-			//read in the PL
-			cg_playerOrigins[i].pl = atof(ptr);
-
-			//move the ptr on until we come to a comma
-			ptr = strchr(ptr, ',');
-
-			//skip over the comma
-			ptr++;
-
-			//read in the PLMax
-			cg_playerOrigins[i].plMax = atof(ptr);
-
-			//move the ptr on until we come to a comma
-			ptr = strchr(ptr, ',');
-
-			//skip over the comma
-			ptr++;
-
-			//read in the team
-			cg_playerOrigins[i].team = atof(ptr);
-
-			//move the ptr on until we come to a comma
-			ptr = strchr(ptr, ',');
-
-			//skip over the comma
-			ptr++;
-
-			//read in the properties
-			cg_playerOrigins[i].properties = atof(ptr);
-
-			//move the ptr on until we come to a comma
-			ptr = strchr(ptr, ',');
-
-			//skip over the comma
-			ptr++;
-
-			//read in the first position number
-			cg_playerOrigins[i].pos[0] = atof(ptr);
-
-			//move the ptr on until we come to a comma
-			ptr = strchr(ptr, ',');
-
-			//skip over the comma
-			ptr++;
-
-			//read in the next position number
-			cg_playerOrigins[i].pos[1] = atof(ptr);
-
-			//move the ptr on until we come to a comma
-			ptr = strchr(ptr, ',');
-
-			//skip over the comma
-			ptr++;
-
-			//read in the final position number
-			cg_playerOrigins[i].pos[2] = atof(ptr);
-
-			// Do a probability check on whether we're going to display the dot
-			// or not.
-			if ( qtrue ) {
-				//mark the entry as valid
-				cg_playerOrigins[i].valid = qtrue;
-			} else {
-				cg_playerOrigins[i].valid = qfalse;
+		for ( i = 0; i < count; i++ ) {
+			ptr = CG_Argv( i + 2 );
+			if ( !ptr || !*ptr ) {
+				break;
 			}
+
+			blip = &cg_playerOrigins[i];
+			blip->clientNum = CG_RadarFieldInt( &ptr );
+			blip->pl = CG_RadarFieldFloat( &ptr );
+			blip->plMax = CG_RadarFieldFloat( &ptr );
+			blip->team = CG_RadarFieldInt( &ptr );
+			blip->properties = CG_RadarFieldInt( &ptr );
+			blip->pos[0] = CG_RadarFieldFloat( &ptr );
+			blip->pos[1] = CG_RadarFieldFloat( &ptr );
+			blip->pos[2] = CG_RadarFieldFloat( &ptr );
+
+			// Keep drawing maths finite and indexes in range.
+			if ( blip->clientNum < 0 || blip->clientNum >= MAX_CLIENTS ) {
+				blip->clientNum = -1;
+			}
+			if ( blip->plMax < 1.0f ) {
+				blip->plMax = 1.0f;
+			}
+			if ( blip->pl < 0.0f ) {
+				blip->pl = 0.0f;
+			}
+			blip->valid = qtrue;
 		}
 		return;
 	}
