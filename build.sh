@@ -498,7 +498,7 @@ vulkan_smoke_test() {
     (cd "$RELEASE_DIR" && HOME="$home_dir" \
         VK_ICD_FILENAMES="$driver_files" \
         timeout 45 xvfb-run -a "./$(basename "$binary")" \
-        +set r_renderer vulkan +set r_smp 0 +wait 30 +quit) >"$logfile" 2>&1 || status=$?
+        +set r_renderer vulkan +set r_smp 0 +set r_measureOverdraw 1 +wait 30 +quit) >"$logfile" 2>&1 || status=$?
 
     if ((status != 0)); then
         cat "$logfile" >&2
@@ -509,6 +509,11 @@ vulkan_smoke_test() {
         cat "$logfile" >&2
         rm -rf "$home_dir" "$logfile"
         die "Vulkan backend was not initialized."
+    fi
+    if ! grep -q 'stencil(8-bits)' "$logfile"; then
+        cat "$logfile" >&2
+        rm -rf "$home_dir" "$logfile"
+        die "Vulkan backend did not report 8 stencil bits."
     fi
     if grep -E -q 'shader translation failed|shader compilation failed|vkCreateGraphicsPipelines failed' "$logfile"; then
         cat "$logfile" >&2

@@ -1657,14 +1657,24 @@ Q3POBJ += \
   $(B)/clientsmp/sdl_glimp.o
 endif
 
-# Vulkan backend: enabled by default on desktop Linux when the development
-# headers (vulkan and shaderc) are available.  Set USE_VULKAN=0 to opt out.
-ifeq ($(PLATFORM),linux)
+# Vulkan backend: enabled by default on Unix desktop builds when the
+# development headers (vulkan and shaderc) are available.  Other desktop
+# platforms, including Windows, opt in with USE_VULKAN=1 (and VULKAN_SDK when
+# the headers/libraries are not on the default search path).
+ifneq ($(filter linux freebsd darwin mingw32,$(PLATFORM)),)
   ifeq ($(USE_VULKAN),)
-    USE_VULKAN := $(shell pkg-config --exists vulkan shaderc 2>/dev/null && echo 1 || echo 0)
+    ifeq ($(PLATFORM),mingw32)
+      USE_VULKAN := 0
+    else
+      USE_VULKAN := $(shell pkg-config --exists vulkan shaderc 2>/dev/null && echo 1 || echo 0)
+    endif
   endif
   ifeq ($(USE_VULKAN),1)
     CLIENT_CFLAGS += -DHAVE_VULKAN
+    ifneq ($(VULKAN_SDK),)
+      CLIENT_CFLAGS += -I$(VULKAN_SDK)/include
+      CLIENT_LDFLAGS += -L$(VULKAN_SDK)/lib
+    endif
     CLIENT_LIBS += -lvulkan -lshaderc
     Q3OBJ += $(B)/client/tr_vkgl.o
   endif

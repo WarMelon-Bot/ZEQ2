@@ -15,12 +15,21 @@ compiled to SPIR-V with shaderc.
 
 #include "tr_local.h"
 
-#include <X11/Xlib.h>
 #include <vulkan/vulkan.h>
-#include <vulkan/vulkan_xlib.h>
 #include <shaderc/shaderc.h>
 #include <SDL.h>
 #include <SDL_syswm.h>
+
+#if defined(_WIN32)
+#  ifndef WIN32_LEAN_AND_MEAN
+#    define WIN32_LEAN_AND_MEAN
+#  endif
+#  include <windows.h>
+#  include <vulkan/vulkan_win32.h>
+#elif defined(SDL_VIDEO_DRIVER_X11)
+#  include <vulkan/vulkan_xlib.h>
+#endif
+
 #include <string.h>
 
 #ifndef ARRAY_LEN
@@ -118,6 +127,12 @@ typedef struct {
 	int polygonMode;
 	VkColorComponentFlags colorMask;
 	qboolean polygonOffset;
+	qboolean stencilTest;
+	int stencilFunc;
+	int stencilRef;
+	uint32_t stencilFuncMask;
+	uint32_t stencilWriteMask;
+	int stencilFail, stencilZFail, stencilZPass;
 	int used;
 } vkPipeline_t;
 
@@ -141,9 +156,12 @@ typedef struct {
 	VkImage colorImage;
 	VkDeviceMemory colorMemory;
 	VkImageView colorView;
+	VkFormat depthFormat;
 	VkImage depthImage;
 	VkDeviceMemory depthMemory;
 	VkImageView depthView;
+	int depthBits;
+	int stencilBits;
 
 	VkRenderPass renderPass;
 	VkFramebuffer framebuffer;
@@ -200,8 +218,15 @@ typedef struct {
 	qboolean scissorEnabled;
 	float clearColor[4];
 	float clearDepth;
+	int clearStencil;
 	qboolean depthTest;
 	qboolean depthWrite;
+	qboolean stencilTest;
+	int stencilFunc;
+	int stencilRef;
+	uint32_t stencilFuncMask;
+	uint32_t stencilWriteMask;
+	int stencilFail, stencilZFail, stencilZPass;
 	qboolean blend;
 	qboolean alphaTest;
 	int alphaFunc;
@@ -275,6 +300,19 @@ static qboolean VK_Check( VkResult result, const char *what )
 
 	ri.Printf( PRINT_ALL, "Vulkan: %s failed (%d)\n", what, (int)result );
 	return qfalse;
+}
+
+/* SDL 1.2 exposes X11 window information on Unix and a raw HWND on Windows.
+   Pick the matching Vulkan extension instead of hard-coding Xlib support. */
+static const char *VK_PlatformSurfaceExtension( void )
+{
+#if defined(_WIN32)
+	return VK_KHR_WIN32_SURFACE_EXTENSION_NAME;
+#elif defined(SDL_VIDEO_DRIVER_X11)
+	return VK_KHR_XLIB_SURFACE_EXTENSION_NAME;
+#else
+	return NULL;
+#endif
 }
 
 static int VK_MemoryType( uint32_t typeBits, VkMemoryPropertyFlags properties )
@@ -432,6 +470,56 @@ static VkImageView VK_CreateImageView( VkImage image, VkFormat format, uint32_t 
 	viewInfo.subresourceRange.layerCount = 1;
 	VK_Check( vkCreateImageView( vk.device, &viewInfo, NULL, &view ), "vkCreateImageView" );
 	return view;
+}
+
+static VkImageAspectFlags VK_DepthAspectMask( void )
+{
+	return vk.stencilBits > 0 ? ( VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT )
+	                          : VK_IMAGE_ASPECT_DEPTH_BIT;
+}
+
+static qboolean VK_SelectDepthStencilFormat( VkFormat *format, int *depthBits, int *stencilBits )
+{
+	static const struct {
+		VkFormat format;
+		int depthBits;
+		int stencilBits;
+	} candidates[] = {
+		{ VK_FORMAT_D24_UNORM_S8_UINT,  24, 8 },
+		{ VK_FORMAT_D32_SFLOAT_S8_UINT, 32, 8 },
+		{ VK_FORMAT_D16_UNORM_S8_UINT,  16, 8 }
+	};
+	uint32_t i;
+
+	for ( i = 0; i < ARRAY_LEN( candidates ); i++ )
+	{
+		VkFormatProperties properties;
+
+		Com_Memset( &properties, 0, sizeof( properties ) );
+		vkGetPhysicalDeviceFormatProperties( vk.physical, candidates[i].format, &properties );
+		if ( ( properties.optimalTilingFeatures & VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT ) &&
+		     ( properties.optimalTilingFeatures & VK_FORMAT_FEATURE_TRANSFER_SRC_BIT ) )
+		{
+			*format = candidates[i].format;
+			*depthBits = candidates[i].depthBits;
+			*stencilBits = candidates[i].stencilBits;
+			return qtrue;
+		}
+	}
+
+	ri.Printf( PRINT_ALL, "Vulkan: no depth/stencil format with readback support found\n" );
+	return qfalse;
+}
+
+static const char *VK_DepthFormatName( void )
+{
+	switch ( vk.depthFormat )
+	{
+		case VK_FORMAT_D24_UNORM_S8_UINT:  return "D24_UNORM_S8_UINT";
+		case VK_FORMAT_D32_SFLOAT_S8_UINT: return "D32_SFLOAT_S8_UINT";
+		case VK_FORMAT_D16_UNORM_S8_UINT:  return "D16_UNORM_S8_UINT";
+		default:                           return "UNKNOWN";
+	}
 }
 
 static void VK_Transition( VkCommandBuffer command, VkImage image,
@@ -1320,15 +1408,15 @@ static qboolean VK_CreateAttachments( void )
 		return qfalse;
 	}
 
-	if ( !VK_CreateImage( vk.extent.width, vk.extent.height, 1, VK_FORMAT_D32_SFLOAT,
+	if ( !VK_CreateImage( vk.extent.width, vk.extent.height, 1, vk.depthFormat,
 	                      VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT |
 	                      VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
 	                      &vk.depthImage, &vk.depthMemory ) )
 	{
 		return qfalse;
 	}
-	vk.depthView = VK_CreateImageView( vk.depthImage, VK_FORMAT_D32_SFLOAT, 1,
-	                                   VK_IMAGE_ASPECT_DEPTH_BIT );
+	vk.depthView = VK_CreateImageView( vk.depthImage, vk.depthFormat, 1,
+	                                   VK_DepthAspectMask() );
 	return vk.depthView != VK_NULL_HANDLE ? qtrue : qfalse;
 }
 
@@ -1376,10 +1464,12 @@ static qboolean VK_CreateRenderPass( void )
 	attachments[0].initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 	attachments[0].finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
-	attachments[1].format = VK_FORMAT_D32_SFLOAT;
+	attachments[1].format = vk.depthFormat;
 	attachments[1].samples = VK_SAMPLE_COUNT_1_BIT;
 	attachments[1].loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
 	attachments[1].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+	attachments[1].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+	attachments[1].stencilStoreOp = VK_ATTACHMENT_STORE_OP_STORE;
 	attachments[1].initialLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 	attachments[1].finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 
@@ -1619,8 +1709,8 @@ static void VK_BeginRenderPass( void )
 	clearValues[0].color.float32[1] = 0.0f;
 	clearValues[0].color.float32[2] = 0.0f;
 	clearValues[0].color.float32[3] = 1.0f;
-	clearValues[1].depthStencil.depth = 1.0f;
-	clearValues[1].depthStencil.stencil = 0;
+	clearValues[1].depthStencil.depth = vk.clearDepth;
+	clearValues[1].depthStencil.stencil = (uint8_t)vk.clearStencil;
 
 	vkCmdBeginRenderPass( vk.commandBuffer, &passInfo, VK_SUBPASS_CONTENTS_INLINE );
 	vk.inRenderPass = qtrue;
@@ -1735,6 +1825,22 @@ static VkCompareOp VK_CompareOp( int glFunc )
 	}
 }
 
+static VkStencilOp VK_StencilOp( int glOp )
+{
+	switch ( glOp )
+	{
+		case GL_ZERO:       return VK_STENCIL_OP_ZERO;
+		case GL_REPLACE:    return VK_STENCIL_OP_REPLACE;
+		case GL_INCR:       return VK_STENCIL_OP_INCREMENT_AND_CLAMP;
+		case GL_DECR:       return VK_STENCIL_OP_DECREMENT_AND_CLAMP;
+		case GL_INVERT:     return VK_STENCIL_OP_INVERT;
+		case GL_INCR_WRAP:  return VK_STENCIL_OP_INCREMENT_AND_WRAP;
+		case GL_DECR_WRAP:  return VK_STENCIL_OP_DECREMENT_AND_WRAP;
+		case GL_KEEP:
+		default:            return VK_STENCIL_OP_KEEP;
+	}
+}
+
 static VkCullModeFlags VK_CullMode( void )
 {
 	if ( !vk.cullFace )
@@ -1786,7 +1892,14 @@ static VkPipeline VK_GetPipeline( vkProgram_t *program, VkPrimitiveTopology topo
 		     cached->blendDst == vk.blendDst && cached->depthFunc == vk.depthFunc &&
 		     cached->frontFace == vk.frontFace && cached->polygonMode == vk.polygonMode &&
 		     cached->colorMask == vk.colorMask &&
-		     cached->polygonOffset == vk.polygonOffset )
+		     cached->polygonOffset == vk.polygonOffset &&
+		     cached->stencilTest == vk.stencilTest && cached->stencilFunc == vk.stencilFunc &&
+		     cached->stencilRef == vk.stencilRef &&
+		     cached->stencilFuncMask == vk.stencilFuncMask &&
+		     cached->stencilWriteMask == vk.stencilWriteMask &&
+		     cached->stencilFail == vk.stencilFail &&
+		     cached->stencilZFail == vk.stencilZFail &&
+		     cached->stencilZPass == vk.stencilZPass )
 		{
 			cached->used++;
 			return cached->pipeline;
@@ -1860,7 +1973,25 @@ static VkPipeline VK_GetPipeline( vkProgram_t *program, VkPrimitiveTopology topo
 	depthStencil.depthCompareOp = depthTest ? VK_CompareOp( vk.depthFunc )
 	                                        : VK_COMPARE_OP_ALWAYS;
 	depthStencil.depthBoundsTestEnable = VK_FALSE;
-	depthStencil.stencilTestEnable = VK_FALSE;
+	if ( vk.stencilTest && vk.stencilBits > 0 )
+	{
+		VkStencilOpState stencil;
+		Com_Memset( &stencil, 0, sizeof( stencil ) );
+		stencil.failOp = VK_StencilOp( vk.stencilFail );
+		stencil.passOp = VK_StencilOp( vk.stencilZPass );
+		stencil.depthFailOp = VK_StencilOp( vk.stencilZFail );
+		stencil.compareOp = VK_CompareOp( vk.stencilFunc );
+		stencil.compareMask = vk.stencilFuncMask;
+		stencil.writeMask = vk.stencilWriteMask;
+		stencil.reference = (uint32_t)vk.stencilRef;
+		depthStencil.front = stencil;
+		depthStencil.back = stencil;
+		depthStencil.stencilTestEnable = VK_TRUE;
+	}
+	else
+	{
+		depthStencil.stencilTestEnable = VK_FALSE;
+	}
 
 	Com_Memset( &colorBlendAttachment, 0, sizeof( colorBlendAttachment ) );
 	colorBlendAttachment.colorWriteMask = vk.colorMask;
@@ -1937,6 +2068,14 @@ static VkPipeline VK_GetPipeline( vkProgram_t *program, VkPrimitiveTopology topo
 		cached->polygonMode = vk.polygonMode;
 		cached->colorMask = vk.colorMask;
 		cached->polygonOffset = vk.polygonOffset;
+		cached->stencilTest = vk.stencilTest;
+		cached->stencilFunc = vk.stencilFunc;
+		cached->stencilRef = vk.stencilRef;
+		cached->stencilFuncMask = vk.stencilFuncMask;
+		cached->stencilWriteMask = vk.stencilWriteMask;
+		cached->stencilFail = vk.stencilFail;
+		cached->stencilZFail = vk.stencilZFail;
+		cached->stencilZPass = vk.stencilZPass;
 		cached->used = 1;
 	}
 	return pipeline;
@@ -2381,6 +2520,7 @@ static void VKGL_Enable( GLenum cap )
 	switch ( cap )
 	{
 		case GL_DEPTH_TEST:   vk.depthTest = qtrue; break;
+		case GL_STENCIL_TEST: vk.stencilTest = qtrue; break;
 		case GL_BLEND:        vk.blend = qtrue; break;
 		case GL_ALPHA_TEST:   vk.alphaTest = qtrue; break;
 		case GL_CULL_FACE:    vk.cullFace = qtrue; break;
@@ -2396,6 +2536,7 @@ static void VKGL_Disable( GLenum cap )
 	switch ( cap )
 	{
 		case GL_DEPTH_TEST:   vk.depthTest = qfalse; break;
+		case GL_STENCIL_TEST: vk.stencilTest = qfalse; break;
 		case GL_BLEND:        vk.blend = qfalse; break;
 		case GL_ALPHA_TEST:   vk.alphaTest = qfalse; break;
 		case GL_CULL_FACE:    vk.cullFace = qfalse; break;
@@ -2411,6 +2552,7 @@ static GLboolean VKGL_IsEnabled( GLenum cap )
 	switch ( cap )
 	{
 		case GL_DEPTH_TEST:   return vk.depthTest ? GL_TRUE : GL_FALSE;
+		case GL_STENCIL_TEST: return vk.stencilTest ? GL_TRUE : GL_FALSE;
 		case GL_BLEND:        return vk.blend ? GL_TRUE : GL_FALSE;
 		case GL_ALPHA_TEST:   return vk.alphaTest ? GL_TRUE : GL_FALSE;
 		case GL_CULL_FACE:    return vk.cullFace ? GL_TRUE : GL_FALSE;
@@ -2501,7 +2643,7 @@ static void VKGL_ClearDepth( GLclampd depth )
 
 static void VKGL_ClearStencil( GLint stencil )
 {
-	(void)stencil;
+	vk.clearStencil = stencil & 0xff;
 }
 
 static void VKGL_ClipPlane( GLenum plane, const GLdouble *equation )
@@ -2535,21 +2677,21 @@ static void VKGL_Hint( GLenum target, GLenum mode )
 
 static void VKGL_StencilFunc( GLenum func, GLint ref, GLuint mask )
 {
-	(void)func;
-	(void)ref;
-	(void)mask;
+	vk.stencilFunc = (int)func;
+	vk.stencilRef = ref & 0xff;
+	vk.stencilFuncMask = mask & 0xff;
 }
 
 static void VKGL_StencilMask( GLuint mask )
 {
-	(void)mask;
+	vk.stencilWriteMask = mask & 0xff;
 }
 
 static void VKGL_StencilOp( GLenum fail, GLenum zfail, GLenum zpass )
 {
-	(void)fail;
-	(void)zfail;
-	(void)zpass;
+	vk.stencilFail = (int)fail;
+	vk.stencilZFail = (int)zfail;
+	vk.stencilZPass = (int)zpass;
 }
 
 static void VKGL_TexEnvfv( GLenum target, GLenum pname, const GLfloat *params )
@@ -2632,12 +2774,25 @@ static void VKGL_Clear( GLbitfield mask )
 		attachments[count].clearValue.color.float32[3] = vk.clearColor[3];
 		count++;
 	}
-	if ( mask & GL_DEPTH_BUFFER_BIT )
+	if ( mask & ( GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT ) )
 	{
-		attachments[count].aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
-		attachments[count].clearValue.depthStencil.depth = vk.clearDepth;
-		attachments[count].clearValue.depthStencil.stencil = 0;
-		count++;
+		VkImageAspectFlags aspects = 0;
+
+		if ( mask & GL_DEPTH_BUFFER_BIT )
+		{
+			aspects |= VK_IMAGE_ASPECT_DEPTH_BIT;
+		}
+		if ( ( mask & GL_STENCIL_BUFFER_BIT ) && vk.stencilBits > 0 )
+		{
+			aspects |= VK_IMAGE_ASPECT_STENCIL_BIT;
+		}
+		if ( aspects )
+		{
+			attachments[count].aspectMask = aspects;
+			attachments[count].clearValue.depthStencil.depth = vk.clearDepth;
+			attachments[count].clearValue.depthStencil.stencil = (uint8_t)vk.clearStencil;
+			count++;
+		}
 	}
 	if ( count > 0 )
 	{
@@ -2754,11 +2909,10 @@ static void VKGL_GetIntegerv( GLenum pname, GLint *params )
 			*params = vk.boundTextureName;
 			break;
 		case GL_DEPTH_BITS:
-			*params = 32;
+			*params = vk.depthBits;
 			break;
 		case GL_STENCIL_BITS:
-			/* Stencil is not implemented by this backend. */
-			*params = 0;
+			*params = vk.stencilBits;
 			break;
 		case GL_RED_BITS:
 		case GL_GREEN_BITS:
@@ -3199,15 +3353,114 @@ static qboolean VK_ReadbackColor( int x, int y, int width, int height, byte *des
 	return qtrue;
 }
 
+static int VK_DepthStencilBytesPerPixel( void )
+{
+	return vk.depthFormat == VK_FORMAT_D32_SFLOAT_S8_UINT ? 8 : 4;
+}
+
+static void VK_DecodeDepthStencil( const byte *src, float *depth, uint32_t *stencil )
+{
+	uint32_t packed;
+
+	switch ( vk.depthFormat )
+	{
+		case VK_FORMAT_D32_SFLOAT_S8_UINT:
+			Com_Memcpy( depth, src, sizeof( *depth ) );
+			*stencil = src[4];
+			break;
+		case VK_FORMAT_D16_UNORM_S8_UINT:
+			packed = (uint32_t)src[0] | ( (uint32_t)src[1] << 8 ) |
+			         ( (uint32_t)src[2] << 16 ) | ( (uint32_t)src[3] << 24 );
+			*depth = (float)( packed & 0xffff ) / 65535.0f;
+			*stencil = ( packed >> 16 ) & 0xff;
+			break;
+		case VK_FORMAT_D24_UNORM_S8_UINT:
+		default:
+			packed = (uint32_t)src[0] | ( (uint32_t)src[1] << 8 ) |
+			         ( (uint32_t)src[2] << 16 ) | ( (uint32_t)src[3] << 24 );
+			*depth = (float)( packed & 0xffffff ) / 16777215.0f;
+			*stencil = ( packed >> 24 ) & 0xff;
+			break;
+	}
+}
+
+static qboolean VK_ReadbackDepthStencil( int x, int y, int width, int height,
+                                         byte *destination )
+{
+	VkBufferImageCopy region;
+	VkImageAspectFlags aspects = VK_DepthAspectMask();
+	size_t bytes;
+
+	if ( !vk.depthImage || !vk.stagingMapped || !destination || width <= 0 || height <= 0 )
+	{
+		return qfalse;
+	}
+	if ( x < 0 || y < 0 || x + width > (int)vk.extent.width ||
+	     y + height > (int)vk.extent.height )
+	{
+		return qfalse;
+	}
+	bytes = (size_t)width * height * VK_DepthStencilBytesPerPixel();
+	if ( bytes > vk.stagingCapacity )
+	{
+		return qfalse;
+	}
+
+	VK_BeginTransient();
+	VK_Transition( vk.transientCommand, vk.depthImage, aspects,
+	               VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+	               VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+	               VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT |
+	               VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT,
+	               VK_ACCESS_TRANSFER_READ_BIT,
+	               VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
+	               VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 1 );
+	Com_Memset( &region, 0, sizeof( region ) );
+	region.bufferOffset = 0;
+	region.imageSubresource.aspectMask = aspects;
+	region.imageSubresource.baseArrayLayer = 0;
+	region.imageSubresource.layerCount = 1;
+	region.imageOffset.x = x;
+	region.imageOffset.y = y;
+	region.imageOffset.z = 0;
+	region.imageExtent.width = width;
+	region.imageExtent.height = height;
+	region.imageExtent.depth = 1;
+	vkCmdCopyImageToBuffer( vk.transientCommand, vk.depthImage,
+	                        VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, vk.stagingBuffer,
+	                        1, &region );
+	VK_Transition( vk.transientCommand, vk.depthImage, aspects,
+	               VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+	               VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+	               VK_ACCESS_TRANSFER_READ_BIT,
+	               VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT |
+	               VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT,
+	               VK_PIPELINE_STAGE_TRANSFER_BIT,
+	               VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT, 0, 1 );
+	if ( !VK_SubmitTransient( vk.transientCommand ) )
+	{
+		return qfalse;
+	}
+
+	Com_Memcpy( destination, vk.stagingMapped, bytes );
+	return qtrue;
+}
+
 static void VKGL_ReadPixels( GLint x, GLint y, GLsizei width, GLsizei height,
                              GLenum format, GLenum type, GLvoid *pixels )
 {
 	size_t count;
 	size_t bytes;
-	size_t i;
+	byte *raw;
 	byte *rgba;
+	byte *srcRow;
+	byte *dstRow;
+	float depth;
+	uint32_t stencil;
 	int row, col;
 	int pixelBytes;
+	int sourceBytes;
+	int imageY;
 
 	if ( width <= 0 || height <= 0 || !pixels )
 	{
@@ -3218,20 +3471,102 @@ static void VKGL_ReadPixels( GLint x, GLint y, GLsizei width, GLsizei height,
 	{
 		return;
 	}
+
 	if ( format == GL_DEPTH_COMPONENT )
 	{
-		float *depth = pixels;
-		for ( i = 0; i < count; i++ )
+		if ( type != GL_FLOAT && type != GL_UNSIGNED_BYTE &&
+		     type != GL_UNSIGNED_SHORT && type != GL_UNSIGNED_INT )
 		{
-			depth[i] = 1.0f;
+			return;
 		}
+		pixelBytes = VK_DepthStencilBytesPerPixel();
+		bytes = count * pixelBytes;
+		if ( bytes > vk.stagingCapacity )
+		{
+			return;
+		}
+		raw = ri.Malloc( bytes );
+		if ( !raw )
+		{
+			return;
+		}
+		imageY = (int)vk.extent.height - y - height;
+		if ( !VK_ReadbackDepthStencil( x, imageY, width, height, raw ) )
+		{
+			ri.Free( raw );
+			return;
+		}
+
+		for ( row = 0; row < height; row++ )
+		{
+			srcRow = raw + (size_t)row * width * pixelBytes;
+			dstRow = (byte *)pixels + (size_t)( height - 1 - row ) * width *
+			         ( type == GL_FLOAT ? 4 : type == GL_UNSIGNED_BYTE ? 1 :
+			           type == GL_UNSIGNED_SHORT ? 2 : 4 );
+			for ( col = 0; col < width; col++ )
+			{
+				VK_DecodeDepthStencil( srcRow + col * pixelBytes, &depth, &stencil );
+				if ( type == GL_FLOAT )
+				{
+					( (float *)dstRow )[col] = depth;
+				}
+				else if ( type == GL_UNSIGNED_BYTE )
+				{
+					dstRow[col] = (byte)( depth * 255.0f );
+				}
+				else if ( type == GL_UNSIGNED_SHORT )
+				{
+					( (uint16_t *)dstRow )[col] = depth >= 1.0f ? 65535
+					                                             : (uint16_t)( depth * 65535.0f );
+				}
+				else
+				{
+					( (uint32_t *)dstRow )[col] = depth >= 1.0f ? 0xffffffffu
+					                                             : (uint32_t)( depth * 4294967295.0f );
+				}
+			}
+		}
+		ri.Free( raw );
 		return;
 	}
+
 	if ( format == GL_STENCIL_INDEX )
 	{
-		Com_Memset( pixels, 0, count );
+		if ( type != GL_UNSIGNED_BYTE || vk.stencilBits <= 0 )
+		{
+			return;
+		}
+		sourceBytes = VK_DepthStencilBytesPerPixel();
+		bytes = count * sourceBytes;
+		if ( bytes > vk.stagingCapacity )
+		{
+			return;
+		}
+		raw = ri.Malloc( bytes );
+		if ( !raw )
+		{
+			return;
+		}
+		imageY = (int)vk.extent.height - y - height;
+		if ( !VK_ReadbackDepthStencil( x, imageY, width, height, raw ) )
+		{
+			ri.Free( raw );
+			return;
+		}
+		for ( row = 0; row < height; row++ )
+		{
+			srcRow = raw + (size_t)row * width * sourceBytes;
+			dstRow = (byte *)pixels + (size_t)( height - 1 - row ) * width;
+			for ( col = 0; col < width; col++ )
+			{
+				VK_DecodeDepthStencil( srcRow + col * sourceBytes, &depth, &stencil );
+				dstRow[col] = (byte)stencil;
+			}
+		}
+		ri.Free( raw );
 		return;
 	}
+
 	if ( type != GL_UNSIGNED_BYTE )
 	{
 		return;
@@ -4184,12 +4519,18 @@ static qboolean VK_CreateBuiltinProgram( void )
 
 qboolean Vkqgl_Available( void )
 {
+	const char *surfaceExtension = VK_PlatformSurfaceExtension();
 	uint32_t count = 0;
 	VkExtensionProperties *extensions;
 	uint32_t i;
 	qboolean haveSurface = qfalse;
-	qboolean haveXlib = qfalse;
+	qboolean havePlatformSurface = qfalse;
 
+	if ( !surfaceExtension )
+	{
+		ri.Printf( PRINT_ALL, "Vulkan: no supported window system surface for this build\n" );
+		return qfalse;
+	}
 	if ( vkEnumerateInstanceExtensionProperties( NULL, &count, NULL ) != VK_SUCCESS ||
 	     count == 0 )
 	{
@@ -4209,21 +4550,83 @@ qboolean Vkqgl_Available( void )
 			{
 				haveSurface = qtrue;
 			}
-			if ( !Q_stricmp( extensions[i].extensionName, VK_KHR_XLIB_SURFACE_EXTENSION_NAME ) )
+			if ( !Q_stricmp( extensions[i].extensionName, surfaceExtension ) )
 			{
-				haveXlib = qtrue;
+				havePlatformSurface = qtrue;
 			}
 		}
 	}
 	ri.Free( extensions );
-	return haveSurface && haveXlib ? qtrue : qfalse;
+	return haveSurface && havePlatformSurface ? qtrue : qfalse;
+}
+
+static qboolean VK_GetWindowInfo( SDL_SysWMinfo *wmInfo )
+{
+	SDL_VERSION( &wmInfo->version );
+	if ( !SDL_GetWMInfo( wmInfo ) )
+	{
+		ri.Printf( PRINT_ALL, "Vulkan: SDL_GetWMInfo failed: %s\n", SDL_GetError() );
+		return qfalse;
+	}
+
+#if defined(_WIN32)
+	if ( !wmInfo->window )
+	{
+		ri.Printf( PRINT_ALL, "Vulkan: no Win32 window available\n" );
+		return qfalse;
+	}
+#elif defined(SDL_VIDEO_DRIVER_X11)
+	if ( wmInfo->subsystem != SDL_SYSWM_X11 || !wmInfo->info.x11.display ||
+	     !wmInfo->info.x11.window )
+	{
+		ri.Printf( PRINT_ALL, "Vulkan: no X11 window available\n" );
+		return qfalse;
+	}
+#else
+	ri.Printf( PRINT_ALL, "Vulkan: unsupported window system\n" );
+	return qfalse;
+#endif
+	return qtrue;
+}
+
+static qboolean VK_CreateSurface( SDL_SysWMinfo *wmInfo )
+{
+#if defined(_WIN32)
+	VkWin32SurfaceCreateInfoKHR surfaceInfo;
+	Com_Memset( &surfaceInfo, 0, sizeof( surfaceInfo ) );
+	surfaceInfo.sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR;
+	surfaceInfo.hinstance = GetModuleHandle( NULL );
+	surfaceInfo.hwnd = wmInfo->window;
+	if ( !VK_Check( vkCreateWin32SurfaceKHR( vk.instance, &surfaceInfo, NULL,
+	                                          &vk.surface ),
+	                "vkCreateWin32SurfaceKHR" ) )
+	{
+		return qfalse;
+	}
+#elif defined(SDL_VIDEO_DRIVER_X11)
+	VkXlibSurfaceCreateInfoKHR surfaceInfo;
+	Com_Memset( &surfaceInfo, 0, sizeof( surfaceInfo ) );
+	surfaceInfo.sType = VK_STRUCTURE_TYPE_XLIB_SURFACE_CREATE_INFO_KHR;
+	surfaceInfo.dpy = wmInfo->info.x11.display;
+	surfaceInfo.window = wmInfo->info.x11.window;
+	if ( !VK_Check( vkCreateXlibSurfaceKHR( vk.instance, &surfaceInfo, NULL,
+	                                         &vk.surface ),
+	                "vkCreateXlibSurfaceKHR" ) )
+	{
+		return qfalse;
+	}
+#else
+	(void)wmInfo;
+	return qfalse;
+#endif
+	return vk.surface != VK_NULL_HANDLE ? qtrue : qfalse;
 }
 
 qboolean Vkqgl_Init( void )
 {
 	const char *instanceExtensions[] = {
 		VK_KHR_SURFACE_EXTENSION_NAME,
-		VK_KHR_XLIB_SURFACE_EXTENSION_NAME
+		NULL
 	};
 	const char *deviceExtensions[] = { VK_KHR_SWAPCHAIN_EXTENSION_NAME };
 	VkInstanceCreateInfo instanceInfo;
@@ -4231,7 +4634,6 @@ qboolean Vkqgl_Init( void )
 	VkDeviceCreateInfo deviceInfo;
 	VkDeviceQueueCreateInfo queueInfo;
 	SDL_SysWMinfo wmInfo;
-	VkXlibSurfaceCreateInfoKHR surfaceInfo;
 	VkPhysicalDevice *devices;
 	uint32_t deviceCount = 0;
 	uint32_t i;
@@ -4245,6 +4647,13 @@ qboolean Vkqgl_Init( void )
 	Com_Memset( &vk, 0, sizeof( vk ) );
 	vk.clearColor[3] = 1.0f;
 	vk.clearDepth = 1.0f;
+	vk.clearStencil = 0;
+	vk.stencilFunc = GL_ALWAYS;
+	vk.stencilFuncMask = 0xff;
+	vk.stencilWriteMask = 0xff;
+	vk.stencilFail = GL_KEEP;
+	vk.stencilZFail = GL_KEEP;
+	vk.stencilZPass = GL_KEEP;
 	vk.lineWidth = 1.0f;
 	vk.depthFunc = GL_LESS;
 	vk.alphaFunc = GL_ALWAYS;
@@ -4258,6 +4667,13 @@ qboolean Vkqgl_Init( void )
 	VKGL_LoadIdentity();
 	VKGL_LoadMatrixf( vkIdentity );
 	Com_Memcpy( vk.matrices[1], vkIdentity, sizeof( vkIdentity ) );
+
+	instanceExtensions[1] = VK_PlatformSurfaceExtension();
+	if ( !instanceExtensions[1] )
+	{
+		ri.Printf( PRINT_ALL, "Vulkan: no supported window system surface for this build\n" );
+		return qfalse;
+	}
 
 	if ( !SDL_WasInit( SDL_INIT_VIDEO ) )
 	{
@@ -4292,10 +4708,9 @@ qboolean Vkqgl_Init( void )
 		return qfalse;
 	}
 
-	SDL_VERSION( &wmInfo.version );
-	if ( !SDL_GetWMInfo( &wmInfo ) || wmInfo.subsystem != SDL_SYSWM_X11 )
+	Com_Memset( &wmInfo, 0, sizeof( wmInfo ) );
+	if ( !VK_GetWindowInfo( &wmInfo ) )
 	{
-		ri.Printf( PRINT_ALL, "Vulkan: no X11 window available\n" );
 		Vkqgl_Shutdown();
 		return qfalse;
 	}
@@ -4320,13 +4735,8 @@ qboolean Vkqgl_Init( void )
 		return qfalse;
 	}
 
-	Com_Memset( &surfaceInfo, 0, sizeof( surfaceInfo ) );
-	surfaceInfo.sType = VK_STRUCTURE_TYPE_XLIB_SURFACE_CREATE_INFO_KHR;
-	surfaceInfo.dpy = wmInfo.info.x11.display;
-	surfaceInfo.window = wmInfo.info.x11.window;
-	if ( vkCreateXlibSurfaceKHR( vk.instance, &surfaceInfo, NULL, &vk.surface ) != VK_SUCCESS )
+	if ( !VK_CreateSurface( &wmInfo ) )
 	{
-		ri.Printf( PRINT_ALL, "Vulkan: could not create Xlib surface\n" );
 		Vkqgl_Shutdown();
 		return qfalse;
 	}
@@ -4397,6 +4807,13 @@ qboolean Vkqgl_Init( void )
 	}
 
 	vkGetPhysicalDeviceMemoryProperties( vk.physical, &vk.memoryProps );
+	if ( !VK_SelectDepthStencilFormat( &vk.depthFormat, &vk.depthBits, &vk.stencilBits ) )
+	{
+		Vkqgl_Shutdown();
+		return qfalse;
+	}
+	ri.Printf( PRINT_ALL, "Vulkan depth/stencil: %s (%d depth, %d stencil bits)\n",
+	           VK_DepthFormatName(), vk.depthBits, vk.stencilBits );
 
 	Com_Memset( &queueInfo, 0, sizeof( queueInfo ) );
 	queueInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
@@ -4462,7 +4879,7 @@ qboolean Vkqgl_Init( void )
 	               VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 0,
 	               VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
 	               VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, 0, 1 );
-	VK_Transition( vk.transientCommand, vk.depthImage, VK_IMAGE_ASPECT_DEPTH_BIT,
+	VK_Transition( vk.transientCommand, vk.depthImage, VK_DepthAspectMask(),
 	               VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, 0,
 	               VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
 	               VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
@@ -4486,8 +4903,8 @@ qboolean Vkqgl_Init( void )
 	glConfig.windowAspect = windowAspect;
 	glConfig.isFullscreen = ( flags & SDL_FULLSCREEN ) != 0;
 	glConfig.colorBits = 32;
-	glConfig.depthBits = 32;
-	glConfig.stencilBits = 0;
+	glConfig.depthBits = vk.depthBits;
+	glConfig.stencilBits = vk.stencilBits;
 	glConfig.deviceSupportsGamma = qfalse;
 	glConfig.driverType = GLDRV_ICD;
 	glConfig.hardwareType = GLHW_GENERIC;
