@@ -24,36 +24,144 @@ jobs:
         with:
           packages: 'platform-tools platforms;android-34 build-tools;34.0.0'
 
-      - name: Install Android NDK and CMake
+      - name: Install Android NDK, CMake, and Zip
         run: |
           sdkmanager --install "ndk;25.2.9519653" "cmake;3.22.1"
+          sudo apt-get update && sudo apt-get install -y zip
 
-      - name: Show Existing Android Files
+      - name: Inspect Existing Android Folder
         run: |
-          find android -maxdepth 4
+          find android -maxdepth 4 2>/dev/null || true
+
+      - name: Generate Clean Gradle Project & Placeholder Assets
+        run: |
+          python3 - << 'PY'
+          import os, textwrap, zipfile
+
+          os.makedirs("android/app/src/main/assets/baseq3", exist_ok=True)
+          os.makedirs("android/app/src/main/jni", exist_ok=True)
+
+          # Create placeholder pak0.pk3
+          pk3_path = "android/app/src/main/assets/baseq3/pak0.pk3"
+          if not os.path.exists(pk3_path):
+              with zipfile.ZipFile(pk3_path, "w") as zf:
+                  zf.writestr("default.cfg", "// placeholder config\n")
+
+          files = {
+              "android/settings.gradle": """
+                  pluginManagement {
+                      repositories {
+                          google()
+                          mavenCentral()
+                          gradlePluginPortal()
+                      }
+                  }
+                  dependencyResolutionManagement {
+                      repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+                      repositories {
+                          google()
+                          mavenCentral()
+                      }
+                  }
+                  rootProject.name = "ZEQ2"
+                  include ':app'
+              """,
+              "android/build.gradle": """
+                  plugins {
+                      id 'com.android.application' version '8.2.2' apply false
+                  }
+              """,
+              "android/gradle.properties": """
+                  org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+                  android.useAndroidX=true
+              """,
+              "android/app/src/main/AndroidManifest.xml": """
+                  <?xml version="1.0" encoding="utf-8"?>
+                  <manifest xmlns:android="http://android.com">
+                      <uses-feature android:glEsVersion="0x00020000" android:required="true" />
+                      <uses-permission android:name="android.permission.INTERNET" />
+                      <application
+                          android:label="ZEQ2"
+                          android:hasCode="false">
+                          <activity
+                              android:name="android.app.NativeActivity"
+                              android:label="ZEQ2"
+                              android:screenOrientation="landscape"
+                              android:configChanges="orientation|keyboardHidden|screenSize"
+                              android:exported="true">
+                              <meta-data android:name="android.app.lib_name" android:value="zeq2" />
+                              <intent-filter>
+                                  <action android:name="android.intent.action.MAIN" />
+                                  <category android:name="android.intent.category.LAUNCHER" />
+                              </intent-filter>
+                          </activity>
+                      </application>
+                  </manifest>
+              """,
+              "android/app/src/main/jni/CMakeLists.txt": """
+                  cmake_minimum_required(VERSION 3.22.1)
+                  project(zeq2)
+                  file(GLOB_RECURSE ENGINE_SOURCES
+                      "${CMAKE_CURRENT_SOURCE_DIR}/../../../../../Source/*.c"
+                      "${CMAKE_CURRENT_SOURCE_DIR}/../../../../../Source/*.cpp"
+                  )
+                  add_library(zeq2 SHARED ${ENGINE_SOURCES})
+                  target_include_directories(zeq2 PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../../../../../Source")
+                  find_library(log-lib log)
+                  find_library(android-lib android)
+                  find_library(egl-lib EGL)
+                  find_library(gles-lib GLESv2)
+                  target_link_libraries(zeq2 ${log-lib} ${android-lib} ${egl-lib} ${gles-lib})
+              """,
+              "android/app/build.gradle": """
+                  plugins {
+                      id 'com.android.application'
+                  }
+                  android {
+                      namespace 'com.zeq2.game'
+                      compileSdk 34
+                      ndkVersion "25.2.9519653"
+                      defaultConfig {
+                          applicationId "com.zeq2.game"
+                          minSdk 24
+                          targetSdk 34
+                          versionCode 1
+                          versionName "1.0"
+                          ndk {
+                              abiFilters 'arm64-v8a'
+                          }
+                      }
+                      externalNativeBuild {
+                          cmake {
+                              path "src/main/jni/CMakeLists.txt"
+                              version "3.22.1"
+                          }
+                      }
+                      buildTypes {
+                          debug {
+                              debuggable true
+                          }
+                      }
+                  }
+              """
+          }
+
+          for path, content in files.items():
+              with open(path, "w", encoding="utf-8") as f:
+                  f.write(textwrap.dedent(content).lstrip())
+          PY
 
       - name: Build Debug APK
         working-directory: ./android
         run: |
-          if [ -f "./gradlew" ]; then
-            chmod +x gradlew
-            ./gradlew assembleDebug
-          else
-            gradle wrapper --gradle-version 8.5
-            chmod +x gradlew
-            ./gradlew assembleDebug
-          fi
-
-      - name: Print Manifest Merger Report on Failure
-        if: failure()
-        run: |
-          find android -name "manifest-merger-*.txt" -exec cat {} + || true
-          cat -n android/app/src/main/AndroidManifest.xml || true
+          gradle wrapper --gradle-version 8.5
+          chmod +x gradlew
+          ./gradlew assembleDebug
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v7
         with:
           name: ZEQ2-Android-Debug-APK
-          path: "**/build/outputs/apk/**/*.apk"
+          path: android/app/build/outputs/apk/debug/*.apk
           archive: false
           if-no-files-found: error
