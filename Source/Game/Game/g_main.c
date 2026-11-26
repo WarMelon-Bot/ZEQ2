@@ -417,6 +417,7 @@ void G_InitGame( int levelTime, int randomSeed, int restart ) {
 
 	// model scripts can be replaced between map loads
 	G_ClearTierCache();
+	G_ClearWeapPhysCache();
 
 	// set some level globals
 	memset( &level, 0, sizeof( level ) );

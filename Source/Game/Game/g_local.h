@@ -700,6 +700,7 @@ void checkTier( gclient_t *client );
 void syncTier( gclient_t *client );
 void setupTiers( gclient_t *client );
 void G_ClearTierCache( void );
+void G_ClearWeapPhysCache( void );
 void G_CheckSkills( playerState_t *ps );
 
 //
