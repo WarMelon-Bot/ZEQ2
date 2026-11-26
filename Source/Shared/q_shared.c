@@ -23,6 +23,11 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 // q_shared.c -- stateless support routines that are included in each code dll
 #include "q_shared.h"
 
+// The QVM compiler does not ship float.h.  This is comfortably below FLT_MAX
+// but far above any gameplay value, so it still catches overflow before the
+// result would become infinity.
+#define Q_PARSE_FLOAT_MAX 1.0e30f
+
 float Com_Clamp( float min, float max, float value ) {
 	if ( value < min ) {
 		return min;
@@ -739,6 +744,144 @@ qboolean Q_isanumber( const char *s )
 qboolean Q_isintegral( float f )
 {
 	return (int)f == f;
+}
+
+/*
+=================
+Q_ParseInteger
+
+Strict base-10 conversion for script tokens.  atof/strtol silently accept
+trailing garbage and overflow into INT_MIN, which made malformed weapon
+scripts able to wrap damage, cost and range values.
+=================
+*/
+qboolean Q_ParseInteger( const char *s, int *out ) {
+	const char *p;
+	unsigned long value;
+	unsigned long limit;
+	qboolean negative;
+
+	if ( !s || !out || !*s ) {
+		return qfalse;
+	}
+
+	p = s;
+	negative = qfalse;
+	if ( *p == '+' || *p == '-' ) {
+		negative = ( *p == '-' );
+		p++;
+	}
+
+	if ( *p < '0' || *p > '9' ) {
+		return qfalse;
+	}
+
+	limit = negative ? (unsigned long)INT_MAX + 1UL : (unsigned long)INT_MAX;
+	value = 0;
+	do {
+		unsigned long digit = (unsigned long)( *p - '0' );
+
+		if ( value > ( limit - digit ) / 10UL ) {
+			return qfalse;
+		}
+		value = value * 10UL + digit;
+		p++;
+	} while ( *p >= '0' && *p <= '9' );
+
+	if ( *p ) {
+		return qfalse;
+	}
+
+	if ( negative ) {
+		*out = ( value == (unsigned long)INT_MAX + 1UL ) ? INT_MIN : -(int)value;
+	} else {
+		*out = (int)value;
+	}
+	return qtrue;
+}
+
+/*
+=================
+Q_ParseFloat
+
+Strict decimal conversion.  The weapon script lexer only emits plain decimal
+numbers (no exponents), so there is no reason to invoke atof on untrusted
+text.  Values that would overflow a float are rejected instead of becoming
+infinity, which later propagated into projectile velocities and durations.
+=================
+*/
+qboolean Q_ParseFloat( const char *s, float *out ) {
+	const char *p;
+	float value;
+	float scale;
+	qboolean negative;
+	qboolean anyDigit;
+
+	if ( !s || !out ) {
+		return qfalse;
+	}
+
+	p = s;
+	negative = qfalse;
+	if ( *p == '+' || *p == '-' ) {
+		negative = ( *p == '-' );
+		p++;
+	}
+
+	value = 0.0f;
+	scale = 0.1f;
+	anyDigit = qfalse;
+
+	while ( *p >= '0' && *p <= '9' ) {
+		float digit = (float)( *p - '0' );
+
+		if ( value > ( Q_PARSE_FLOAT_MAX - digit ) / 10.0f ) {
+			return qfalse;
+		}
+		value = value * 10.0f + digit;
+		anyDigit = qtrue;
+		p++;
+	}
+
+	if ( *p == '.' ) {
+		p++;
+		while ( *p >= '0' && *p <= '9' ) {
+			float digit = (float)( *p - '0' );
+
+			if ( value > Q_PARSE_FLOAT_MAX - digit * scale ) {
+				return qfalse;
+			}
+			value += digit * scale;
+			scale *= 0.1f;
+			anyDigit = qtrue;
+			p++;
+		}
+	}
+
+	if ( !anyDigit || *p ) {
+		return qfalse;
+	}
+
+	*out = negative ? -value : value;
+	return qtrue;
+}
+
+/*
+=================
+Q_EndsWithIgnoreCase
+=================
+*/
+qboolean Q_EndsWithIgnoreCase( const char *s, size_t len, const char *suffix ) {
+	size_t suffixLen;
+
+	if ( !s || !suffix ) {
+		return qfalse;
+	}
+	suffixLen = strlen( suffix );
+	if ( !suffixLen || len < suffixLen ) {
+		return qfalse;
+	}
+	return Q_stricmpn( s + len - suffixLen, suffix, (int)suffixLen ) == 0;
 }
 
 /*

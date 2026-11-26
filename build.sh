@@ -13,6 +13,7 @@
 #   ./build.sh connect-cache-test  run model config cache regression tests
 #   ./build.sh chat-message-test  run client chat/message hardening regression tests
 #   ./build.sh network-safety-test  run untrusted network message parser regression tests
+#   ./build.sh parse-io-test  run script number and filesystem suffix helper regression tests
 #   ./build.sh connect-userinfo-test  sanitizer test for oversized connect userinfo
 #   ./build.sh integration-test  connect a client to a real server and exercise actions
 #   ./build.sh warnings        clean rebuild that fails on any compiler warning
@@ -466,6 +467,32 @@ network_safety_test() {
         "$SOURCE_DIR/Tests/test_network_safety.c" \
         "$SOURCE_DIR/Shared/msg.c" \
         "$SOURCE_DIR/Shared/huffman.c" -lm
+
+    ASAN_OPTIONS=detect_leaks=1 \
+        UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
+        "$binary"
+}
+
+parse_io_test() {
+    local cc="${CC:-cc}" binary="$TEST_DIR/parse-io-tests" probe="$TEST_DIR/parse-sanitizer-probe"
+    local sanitizers=""
+
+    log "Building and running script parser / IO helper regression tests..."
+    mkdir -p "$TEST_DIR"
+    if printf 'int main(void) { return 0; }\n' | \
+        "$cc" -x c - -o "$probe" -fsanitize=address,undefined >/dev/null 2>&1; then
+        sanitizers="-fsanitize=address,undefined -fno-omit-frame-pointer"
+    else
+        warn "Compiler does not support ASan/UBSan; running parse/IO tests without sanitizers."
+    fi
+    rm -f "$probe"
+
+    # shellcheck disable=SC2086
+    "$cc" -std=gnu17 -g -O1 -Wall -Wextra $sanitizers \
+        -I "$SOURCE_DIR/Shared" -I "$SOURCE_DIR/Engine/client" \
+        -o "$binary" \
+        "$SOURCE_DIR/Tests/test_parse_io.c" \
+        "$SOURCE_DIR/Shared/q_shared.c" -lm
 
     ASAN_OPTIONS=detect_leaks=1 \
         UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
@@ -1029,7 +1056,14 @@ CFGEOF
         'AddressSanitizer' \
         'cmdCount <[=] 0' \
         'lost .* clientCommands'; do
-        if grep -qE "$pattern" "$client_log" || grep -qE "$pattern" "$server_log"; then
+        local server_check_log="$server_log"
+        if [[ "$pattern" == 'Hitch warning' ]]; then
+            # VM compilation makes the first server frame slow in headless CI.
+            # That hitch happens before the test client connects; only hitches
+            # during the actual gameplay portion of the log are failures.
+            server_check_log="$(sed -n '/ClientBegin: 0/,$p' "$server_log")"
+        fi
+        if grep -qE "$pattern" "$client_log" || printf '%s\n' "$server_check_log" | grep -qE "$pattern"; then
             printf '  unexpected error matching %s\n' "$pattern" >&2
             failure=1
         fi
@@ -1075,6 +1109,7 @@ Commands:
   chat-message-test  Run client chat/message hardening regression tests
   string-test  Com_sprintf truncation/stack-safety regression tests
   network-safety-test  Run untrusted network message parser regression tests
+  parse-io-test  Run script number and filesystem suffix helper regression tests
   connect-userinfo-test  Sanitizer test for oversized connect userinfo packets
   integration-test  Connect a client to a real server and exercise all actions
   vulkan_smoke_test  Smoke-test the Vulkan client under Xvfb (lavapipe)
@@ -1120,7 +1155,8 @@ while (($#)); do
                   "$1" == pmove-test || "$1" == connect-cache-test || \
                    "$1" == chat-message-test || \
                    "$1" == string-test || \
-                   "$1" == network-safety-test || "$1" == connect-userinfo-test || \
+                   "$1" == network-safety-test || "$1" == parse-io-test || \
+                   "$1" == connect-userinfo-test || \
                   "$1" == integration-test || "$1" == vulkan_smoke_test || \
                   "$1" == warnings || \
                   "$1" == win64 || "$1" == android || \
@@ -1145,6 +1181,7 @@ case "$command_name" in
         chat_message_test
         string_test
         network_safety_test
+        parse_io_test
         smoke_test
         memory_limit_test
         client_smoke_test
@@ -1171,6 +1208,7 @@ case "$command_name" in
         chat_message_test
         string_test
         network_safety_test
+        parse_io_test
         smoke_test
         memory_limit_test
         client_smoke_test
@@ -1191,6 +1229,9 @@ case "$command_name" in
         ;;
     network-safety-test)
         network_safety_test
+        ;;
+    parse-io-test)
+        parse_io_test
         ;;
     connect-userinfo-test)
         connect_userinfo_test

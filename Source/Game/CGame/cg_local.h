@@ -1803,6 +1803,7 @@ void CG_UpdateRadarBlips( char *cmd );
 // cg_weapGfxParser.c
 //
 qboolean CG_weapGfx_Parse( char *filename, int clientNum );
+void CG_ClearWeapGfxCache( void );
 
 //
 // cg_tiersystem.c
