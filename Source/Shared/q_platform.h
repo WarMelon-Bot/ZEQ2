@@ -33,11 +33,8 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 
 #else
 
-#if (defined _M_IX86 || defined __i386__) && !defined(C_ONLY)
-#define id386 1
-#else
+// 32-bit x86 asm/JIT removed: full 64-bit build.
 #define id386 0
-#endif
 
 #if (defined(powerc) || defined(powerpc) || defined(ppc) || \
 	defined(__ppc) || defined(__ppc__)) && !defined(C_ONLY)
@@ -90,9 +87,14 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 
 #define Q3_POINTER_SIZE (Q3_64BIT ? 8 : 4)
 
+#if !defined(Q3_VM) && !Q3_64BIT
+#error "ZEQ2-Lite native builds require a 64-bit target; legacy 32-bit builds are not supported."
+#endif
+
 //================================================================= WIN64/32 ===
 
-#if defined( __WIN64__ ) || defined( _WIN64 ) || defined( WIN64 )
+#if defined( __WIN64__ ) || defined( _WIN64 ) || defined( WIN64 ) || defined( WIN32 )
+
 #ifndef __WIN64__
 #define __WIN64__
 #endif
@@ -102,42 +104,14 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 
 #if defined( _MSC_VER )
 #define OS_STRING "win_msvc64"
-#elif defined __MINGW64__
+#elif defined __MINGW64__ || defined __MINGW32__
 #define OS_STRING "win_mingw64"
 #endif
 
 #define ID_INLINE inline
 #define PATH_SEP '\\'
 
-#if defined( __WIN64__ ) 
 #define ARCH_STRING "x86_64"
-#elif defined _M_ALPHA
-#define ARCH_STRING "AXP"
-#endif
-
-#define Q3_LITTLE_ENDIAN
-
-#define DLL_EXT ".dll"
-
-#elif WIN32
-
-#undef QDECL
-#define QDECL __cdecl
-
-#if defined( _MSC_VER )
-#define OS_STRING "win_msvc"
-#elif defined __MINGW32__
-#define OS_STRING "win_mingw"
-#endif
-
-#define ID_INLINE __inline
-#define PATH_SEP '\\'
-
-#if defined( _M_IX86 ) || defined( __i386__ )
-#define ARCH_STRING "x86"
-#elif defined _M_ALPHA
-#define ARCH_STRING "AXP"
-#endif
 
 #define Q3_LITTLE_ENDIAN
 
