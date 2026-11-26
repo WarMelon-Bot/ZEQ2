@@ -70,14 +70,16 @@ void G_RadarUpdateCS(void) {
 		for( i = 0; i < g_maxclients.integer; i++ ) {
 			//if weve got a valid entry then add the position to the command string
 			if( g_playerOrigins[i].valid ) {
-				strcat(cmd, va(" %i,", g_playerOrigins[i].clientNum));
-				strcat(cmd, va("%i,",  g_playerOrigins[i].pl));
-				strcat(cmd, va("%i,",  g_playerOrigins[i].plMax));
-				strcat(cmd, va("%i,",  g_playerOrigins[i].team));
-				strcat(cmd, va("%i,",  g_playerOrigins[i].properties));
-				strcat(cmd, va("%i,",  (int)ceil(g_playerOrigins[i].pos[0])));
-				strcat(cmd, va("%i,",  (int)ceil(g_playerOrigins[i].pos[1])));
-				strcat(cmd, va("%i",   (int)ceil(g_playerOrigins[i].pos[2])));
+				// A full team of clients can produce more text than cmd can
+				// hold; Q_strcat truncates safely instead of overflowing.
+				Q_strcat(cmd, sizeof(cmd), va(" %i,", g_playerOrigins[i].clientNum));
+				Q_strcat(cmd, sizeof(cmd), va("%i,",  g_playerOrigins[i].pl));
+				Q_strcat(cmd, sizeof(cmd), va("%i,",  g_playerOrigins[i].plMax));
+				Q_strcat(cmd, sizeof(cmd), va("%i,",  g_playerOrigins[i].team));
+				Q_strcat(cmd, sizeof(cmd), va("%i,",  g_playerOrigins[i].properties));
+				Q_strcat(cmd, sizeof(cmd), va("%i,",  (int)ceil(g_playerOrigins[i].pos[0])));
+				Q_strcat(cmd, sizeof(cmd), va("%i,",  (int)ceil(g_playerOrigins[i].pos[1])));
+				Q_strcat(cmd, sizeof(cmd), va("%i",   (int)ceil(g_playerOrigins[i].pos[2])));
 			}
 		}
 

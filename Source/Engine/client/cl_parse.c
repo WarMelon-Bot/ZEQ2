@@ -279,6 +279,12 @@ void CL_ParseSnapshot( msg_t *msg ) {
 		MSG_ReadDeltaPlayerstate( msg, NULL, &newSnap.ps );
 	}
 
+	// playerState.clientNum is an 8-bit server-controlled field, but the
+	// cgame module uses it to index clientinfo[MAX_CLIENTS].
+	if ( newSnap.ps.clientNum < 0 || newSnap.ps.clientNum >= MAX_CLIENTS ) {
+		newSnap.ps.clientNum = 0;
+	}
+
 	// read packet entities
 	SHOWNET( msg, "packet entities" );
 	CL_ParsePacketEntities( msg, old, &newSnap );
@@ -511,6 +517,10 @@ void CL_ParseGamestate( msg_t *msg ) {
 	}
 
 	clc.clientNum = MSG_ReadLong(msg);
+	if ( clc.clientNum < 0 || clc.clientNum >= MAX_CLIENTS ) {
+		Com_Error( ERR_DROP, "Gamestate client number out of range: %i", clc.clientNum );
+		return;
+	}
 	// read the checksum feed
 	clc.checksumFeed = MSG_ReadLong( msg );
 

@@ -218,6 +218,14 @@ SV_UpdateServerCommandsToClient
 void SV_UpdateServerCommandsToClient( client_t *client, msg_t *msg ) {
 	int		i;
 
+	// Nothing to replay, and adding one to INT_MAX would wrap.  Even though
+	// SV_ExecuteClientMessage() clamps incoming acknowledgements, keep the
+	// replay loop safe for callers that did not go through that path.
+	if ( client->reliableAcknowledge >= client->reliableSequence ) {
+		client->reliableSent = client->reliableSequence;
+		return;
+	}
+
 	// write any unacknowledged serverCommands
 	for ( i = client->reliableAcknowledge + 1 ; i <= client->reliableSequence ; i++ ) {
 		MSG_WriteByte( msg, svc_serverCommand );

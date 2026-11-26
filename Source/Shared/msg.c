@@ -231,19 +231,41 @@ int MSG_ReadBits( msg_t *msg, int bits ) {
 			msg->bit += 32;
 		}
 	} else {
+		int bit;
+
 		nbits = 0;
 		if (bits&7) {
 			nbits = bits&7;
 			for(i=0;i<nbits;i++) {
-				value |= (Huff_getBit(msg->data, &msg->bit)<<i);
+				// Huffman reads must stay inside the received packet.  A
+				// connected peer can otherwise claim a huge VoIP payload
+				// and make the decoder walk past the message buffer.
+				if ( msg->cursize <= 0 || (msg->bit>>3) >= msg->cursize ) {
+					msg->overflowed = qtrue;
+					return 0;
+				}
+				bit = Huff_getBit(msg->data, &msg->bit, msg->cursize);
+				if ( bit < 0 ) {
+					msg->overflowed = qtrue;
+					return 0;
+				}
+				value |= (bit<<i);
 			}
 			bits = bits - nbits;
 		}
 		if (bits) {
 //			fp = fopen("c:\\netchan.bin", "a");
 			for(i=0;i<bits;i+=8) {
-				Huff_offsetReceive (msgHuff.decompressor.tree, &get, msg->data, &msg->bit);
+				if ( msg->cursize <= 0 || (msg->bit>>3) >= msg->cursize ) {
+					msg->overflowed = qtrue;
+					return 0;
+				}
 //				fwrite(&get, 1, 1, fp);
+				if ( !Huff_offsetReceive (msgHuff.decompressor.tree, &get,
+				                          msg->data, &msg->bit, msg->cursize) ) {
+					msg->overflowed = qtrue;
+					return 0;
+				}
 				value |= (get<<(i+nbits));
 			}
 //			fclose(fp);
@@ -1498,6 +1520,13 @@ void MSG_ReadDeltaPlayerstate (msg_t *msg, playerState_t *from, playerState_t *t
 
 	numFields = sizeof( playerStateFields ) / sizeof( playerStateFields[0] );
 	lc = MSG_ReadByte(msg);
+
+	// The field count comes from the server.  Without this check a hostile
+	// server can walk far past playerStateFields[] and use the garbage
+	// offsets to read/write outside the player state structures.
+	if ( lc < 0 || lc > numFields ) {
+		Com_Error( ERR_DROP, "invalid playerState field count" );
+	}
 
 	for ( i = 0, field = playerStateFields ; i < lc ; i++, field++ ) {
 		fromF = (int *)( (byte *)from + field->offset );

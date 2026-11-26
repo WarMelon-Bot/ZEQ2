@@ -656,7 +656,7 @@ static void SVC_Status( netadr_t from ) {
 		return;
 	}
 
-	strcpy( infostring, Cvar_InfoString( CVAR_SERVERINFO ) );
+	Q_strncpyz( infostring, Cvar_InfoString( CVAR_SERVERINFO ), sizeof( infostring ) );
 
 	// echo back the parameter to status. so master servers can use it as a challenge
 	// to prevent timed spoofed reply packets that add ghost servers
@@ -855,7 +855,10 @@ static void SV_ConnectionlessPacket( netadr_t from, msg_t *msg ) {
 	MSG_BeginReadingOOB( msg );
 	MSG_ReadLong( msg );		// skip the -1 marker
 
-	if (!Q_strncmp("connect", (char *) &msg->data[4], 7)) {
+	// The 4-byte marker plus "connect" must really be present before the
+	// compressed payload is decoded; otherwise stale packet-buffer bytes
+	// can make a short connectionless packet look like a connect request.
+	if ( msg->cursize >= 11 && !Q_strncmp("connect", (char *) &msg->data[4], 7)) {
 		Huff_Decompress(msg, 12);
 	}
 

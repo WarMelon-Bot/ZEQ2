@@ -1678,6 +1678,13 @@ void SV_ExecuteClientMessage( client_t *cl, msg_t *msg ) {
 		cl->reliableAcknowledge = cl->reliableSequence;
 		return;
 	}
+	// An acknowledgement newer than anything we sent is just as bogus as
+	// a very old one.  Leaving it unchecked makes the replay loop in
+	// SV_UpdateServerCommandsToClient() wrap around on ack + 1 and spin
+	// for billions of iterations, hanging the server for every player.
+	if (cl->reliableAcknowledge > cl->reliableSequence) {
+		cl->reliableAcknowledge = cl->reliableSequence;
+	}
 	// if this is a usercmd from a previous gamestate,
 	// ignore it or retransmit the current gamestate
 	// 

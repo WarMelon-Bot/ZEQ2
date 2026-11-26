@@ -1988,7 +1988,9 @@ Resend a connect message if the last one has timed out
 void CL_CheckForResend( void ) {
 	int		port, i;
 	char	info[MAX_INFO_STRING];
-	char	data[MAX_INFO_STRING];
+	// "connect " + quote + userinfo + quote + NUL is up to 11 bytes
+	// longer than the info string itself.
+	char	data[MAX_INFO_STRING + 16];
 
 	// don't send anything if playing back a demo
 	if ( clc.demoplaying ) {
@@ -2033,6 +2035,12 @@ void CL_CheckForResend( void ) {
     data[8] = '"';
 
 		i = strlen( info );
+		if ( i + 10 >= (int)sizeof( data ) ) {
+			// Defensive: the info string cannot normally exceed
+			// MAX_INFO_STRING, but never index past the packet buffer.
+			Com_Printf( "Userinfo too long for a connect packet\n" );
+			return;
+		}
 		memcpy( &data[9], info, i );
     data[9+i] = '"';
 		data[10+i] = 0;
@@ -3329,11 +3337,19 @@ void CL_ServerInfoPacket( netadr_t from, msg_t *msg ) {
 	cls.localServers[i].netType = from.type;
 									 
 	Q_strncpyz( info, MSG_ReadString( msg ), MAX_INFO_STRING );
-	if (strlen(info)) {
-		if (info[strlen(info)-1] != '\n') {
-			strncat(info, "\n", sizeof(info) - 1);
+	{
+		size_t infoLen = strlen( info );
+		// strncat(dest, src, sizeof(dest) - 1) still writes a NUL one byte
+		// past the array when dest is already full.  Append only when the
+		// newline and its terminator both fit.
+		if ( infoLen > 0 && info[ infoLen - 1 ] != '\n' &&
+		     infoLen + 1 < sizeof( info ) ) {
+			info[ infoLen ] = '\n';
+			info[ infoLen + 1 ] = '\0';
 		}
-		Com_Printf( "%s: %s", NET_AdrToStringwPort( from ), info );
+		if ( infoLen > 0 ) {
+			Com_Printf( "%s: %s", NET_AdrToStringwPort( from ), info );
+		}
 	}
 }
 

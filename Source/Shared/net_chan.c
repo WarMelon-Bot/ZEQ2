@@ -650,6 +650,11 @@ void QDECL NET_OutOfBandData( netsrc_t sock, netadr_t adr, byte *format, int len
 	int			i;
 	msg_t		mbuf;
 
+	if ( len < 0 || len > (int)sizeof( string ) - 4 ) {
+		Com_Error( ERR_DROP, "NET_OutOfBandData: bad length %i", len );
+		return;
+	}
+
 	// set the header
 	string[0] = 0xff;
 	string[1] = 0xff;

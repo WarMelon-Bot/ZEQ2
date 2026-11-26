@@ -12,6 +12,8 @@
 #   ./build.sh pmove-test        run deterministic movement/melee/weapon regression tests
 #   ./build.sh connect-cache-test  run model config cache regression tests
 #   ./build.sh chat-message-test  run client chat/message hardening regression tests
+#   ./build.sh network-safety-test  run untrusted network message parser regression tests
+#   ./build.sh connect-userinfo-test  sanitizer test for oversized connect userinfo
 #   ./build.sh warnings        clean rebuild that fails on any compiler warning
 #   ./build.sh run [args...]   run the graphical client
 #   ./build.sh smp [args...]   run the multi-threaded renderer client
@@ -421,6 +423,109 @@ chat_message_test() {
         "$binary"
 }
 
+network_safety_test() {
+    local cc="${CC:-cc}" binary="$TEST_DIR/network-safety-tests" probe="$TEST_DIR/sanitizer-probe"
+    local sanitizers=""
+
+    log "Building and running untrusted network message parser tests..."
+    mkdir -p "$TEST_DIR"
+    if printf 'int main(void) { return 0; }\n' | \
+        "$cc" -x c - -o "$probe" -fsanitize=address,undefined >/dev/null 2>&1; then
+        sanitizers="-fsanitize=address,undefined -fno-omit-frame-pointer"
+    else
+        warn "Compiler does not support ASan/UBSan; running network safety tests without sanitizers."
+    fi
+    rm -f "$probe"
+
+    # shellcheck disable=SC2086
+    "$cc" -std=gnu17 -g -O1 -Wall $sanitizers \
+        -I "$SOURCE_DIR/Shared" -I "$SOURCE_DIR/Engine/client" \
+        -o "$binary" \
+        "$SOURCE_DIR/Tests/test_network_safety.c" \
+        "$SOURCE_DIR/Shared/msg.c" \
+        "$SOURCE_DIR/Shared/huffman.c" -lm
+
+    ASAN_OPTIONS=detect_leaks=1 \
+        UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
+        "$binary"
+}
+
+connect_userinfo_test() {
+    local tmpdir home_dir runtime_dir port status=0
+    local client_log server_log long_value n client_binary
+
+    if [[ "$PLATFORM" != linux && "$PLATFORM" != darwin ]]; then
+        warn "Skipping connect-userinfo test on $PLATFORM."
+        return 0
+    fi
+    if ! command -v xvfb-run >/dev/null 2>&1; then
+        warn "xvfb-run not found; skipping the connect-userinfo sanitizer test."
+        return 0
+    fi
+    if ! command -v python3 >/dev/null 2>&1; then
+        warn "python3 not found; skipping the connect-userinfo sanitizer test."
+        return 0
+    fi
+
+    tmpdir="$(mktemp -d)"
+    trap 'rm -rf "$tmpdir"' RETURN
+    runtime_dir="$tmpdir/build/Release-${PLATFORM}-${ARCH}"
+    home_dir="$tmpdir/home"
+    client_log="$tmpdir/client.log"
+    server_log="$tmpdir/server.log"
+
+    log "Building sanitized client for the connect-userinfo regression test..."
+    make -C "$SOURCE_DIR" BUILD_DIR="$tmpdir/build" release -j"$JOBS" \
+        USE_LOCAL_HEADERS=0 \
+        CFLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer -g -O1' \
+        LDFLAGS='-fsanitize=address,undefined' >"$tmpdir/build.log" 2>&1 || {
+            cat "$tmpdir/build.log" >&2
+            die "Sanitized client build failed."
+        }
+    prepare_runtime "$runtime_dir"
+    client_binary="$(find_binary "$runtime_dir" "ZEQ2.$ARCH")" || die "Sanitized client binary was not built."
+    client_binary="$(basename "$client_binary")"
+
+    mkdir -p "$home_dir/.ZEQ2/ZEQ2"
+    long_value="$(printf 'B%.0s' $(seq 1 250))"
+    {
+        for n in 1 2 3 4 5; do
+            printf 'setu custom%d "%s"\n' "$n" "$long_value"
+        done
+    } > "$home_dir/.ZEQ2/ZEQ2/autoexec.cfg"
+
+    port="$(python3 -c 'import socket; s=socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()')"
+    python3 "$SOURCE_DIR/Tests/fake_connect_server.py" "$port" >"$server_log" 2>&1 &
+    local server_pid=$!
+    sleep 1
+
+    log "Connecting a client with a ~1 KiB userinfo string to the fake server..."
+    (cd "$runtime_dir" && HOME="$home_dir" \
+        ASAN_OPTIONS=detect_leaks=0 \
+        UBSAN_OPTIONS=halt_on_error=0:print_stacktrace=1 \
+        timeout 30 xvfb-run -a "./$client_binary" \
+        +connect "127.0.0.1:$port" +wait 5 +quit) >"$client_log" 2>&1 || status=$?
+    kill "$server_pid" 2>/dev/null || true
+    wait "$server_pid" 2>/dev/null || true
+
+    if ((status != 0)); then
+        cat "$client_log" >&2
+        die "Sanitized client exited with status $status during connect."
+    fi
+    # This old renderer emits known UBSan alignment/null-argument diagnostics
+    # under Xvfb; only fail on actual ASan findings, which are the overflow
+    # this test is meant to guard against.
+    if grep -q 'AddressSanitizer' "$client_log"; then
+        cat "$client_log" >&2
+        die "Sanitized client reported a memory error during connect."
+    fi
+    grep -q 'SAW_CONNECT' "$server_log" || {
+        cat "$server_log" >&2
+        die "Fake server did not observe the client connect packet."
+    }
+    log "Passed: oversized userinfo connect packet is handled safely."
+}
+
 pmove_test() {
     local cc="${CC:-cc}" binary="$TEST_DIR/pmove-tests" output="$TEST_DIR/pmove-tests.out"
     local game="$SOURCE_DIR/Game/Game"
@@ -690,6 +795,8 @@ Commands:
   pmove-test  Build and run deterministic movement/melee/weapon regression tests
   connect-cache-test  Run model config cache regression tests
   chat-message-test  Run client chat/message hardening regression tests
+  network-safety-test  Run untrusted network message parser regression tests
+  connect-userinfo-test  Sanitizer test for oversized connect userinfo packets
   vulkan_smoke_test  Smoke-test the Vulkan client under Xvfb (lavapipe)
   warnings  Fresh release+debug rebuild; fail if any compiler warning appears
   win64     Cross-build Windows x64 server and game modules (needs mingw-w64)
@@ -732,6 +839,7 @@ while (($#)); do
                   "$1" == memory-test || "$1" == memory-test-asan || \
                   "$1" == pmove-test || "$1" == connect-cache-test || \
                    "$1" == chat-message-test || \
+                   "$1" == network-safety-test || "$1" == connect-userinfo-test || \
                   "$1" == vulkan_smoke_test || "$1" == warnings || \
                   "$1" == win64 || "$1" == android || \
                   "$1" == run || "$1" == smp || "$1" == server || "$1" == clean ]]; then
@@ -753,6 +861,7 @@ case "$command_name" in
         pmove_test
         connect_cache_test
         chat_message_test
+        network_safety_test
         smoke_test
         memory_limit_test
         client_smoke_test
@@ -776,6 +885,7 @@ case "$command_name" in
         pmove_test
         connect_cache_test
         chat_message_test
+        network_safety_test
         smoke_test
         memory_limit_test
         client_smoke_test
@@ -789,6 +899,12 @@ case "$command_name" in
         ;;
     chat-message-test)
         chat_message_test
+        ;;
+    network-safety-test)
+        network_safety_test
+        ;;
+    connect-userinfo-test)
+        connect_userinfo_test
         ;;
     memory-limit-test)
         memory_limit_test

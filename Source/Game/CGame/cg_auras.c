@@ -87,8 +87,13 @@ CG_Aura_GetHullPoints
 static void CG_Aura_GetHullPoints( centity_t *player, auraState_t *state, auraConfig_t *config){
 	char		tagName[MAX_AURATAGNAME];
 	int			i, j;
+	int			clientNum;
 	clientInfo_t	*ci;
-	ci = &cgs.clientinfo[player->currentState.clientNum];
+	clientNum = player->currentState.clientNum;
+	if ( clientNum < 0 || clientNum >= MAX_CLIENTS ) {
+		clientNum = 0;
+	}
+	ci = &cgs.clientinfo[clientNum];
 	j = 0;
 	
 	if(ci->usingMD4)
@@ -927,6 +932,13 @@ void parseAura(char *path,auraConfig_t *aura){
 	char fileContents[32000];
 	if(trap_FS_FOpenFile(path,0,FS_READ)>0){
 		fileLength = trap_FS_FOpenFile(path,&auraCFG,FS_READ);
+		// A malformed or hostile config file must not overflow the stack
+		// buffer used for parsing.
+		if ( fileLength < 0 ) {
+			fileLength = 0;
+		} else if ( fileLength > (int)sizeof(fileContents) - 1 ) {
+			fileLength = (int)sizeof(fileContents) - 1;
+		}
 		trap_FS_Read(fileContents,fileLength,auraCFG);
 		fileContents[fileLength] = 0;
 		trap_FS_FCloseFile(auraCFG);

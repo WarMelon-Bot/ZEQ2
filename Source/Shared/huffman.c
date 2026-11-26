@@ -49,9 +49,12 @@ void	Huff_setBloc(int _bloc)
 	bloc = _bloc;
 }
 
-int		Huff_getBit( byte *fin, int *offset) {
+int		Huff_getBit( byte *fin, int *offset, int finlen) {
 	int t;
 	bloc = *offset;
+	if ( finlen <= 0 || (bloc >> 3) >= finlen ) {
+		return -1;
+	}
 	t = (fin[(bloc>>3)] >> (bloc&7)) & 0x1;
 	bloc++;
 	*offset = bloc;
@@ -68,8 +71,11 @@ static void add_bit (char bit, byte *fout) {
 }
 
 /* Receive one bit from the input file (buffered) */
-static int get_bit (byte *fin) {
+static int get_bit (byte *fin, int finlen) {
 	int t;
+	if ( finlen <= 0 || (bloc >> 3) >= finlen ) {
+		return -1;
+	}
 	t = (fin[(bloc>>3)] >> (bloc&7)) & 0x1;
 	bloc++;
 	return t;
@@ -262,14 +268,16 @@ void Huff_addRef(huff_t* huff, byte ch) {
 	}
 }
 
-/* Get a symbol */
-int Huff_Receive (node_t *node, int *ch, byte *fin) {
+/* Get a symbol, or -1 if the compressed input ran out */
+int Huff_Receive (node_t *node, int *ch, byte *fin, int finlen) {
+	int bit;
+
 	while (node && node->symbol == INTERNAL_NODE) {
-		if (get_bit(fin)) {
-			node = node->right;
-		} else {
-			node = node->left;
+		bit = get_bit(fin, finlen);
+		if (bit < 0) {
+			return -1;
 		}
+		node = bit ? node->right : node->left;
 	}
 	if (!node) {
 		return 0;
@@ -278,23 +286,27 @@ int Huff_Receive (node_t *node, int *ch, byte *fin) {
 	return (*ch = node->symbol);
 }
 
-/* Get a symbol */
-void Huff_offsetReceive (node_t *node, int *ch, byte *fin, int *offset) {
+/* Get a symbol at an explicit bit offset, or qfalse on truncated input */
+qboolean Huff_offsetReceive (node_t *node, int *ch, byte *fin, int *offset, int finlen) {
+	int bit;
+
 	bloc = *offset;
 	while (node && node->symbol == INTERNAL_NODE) {
-		if (get_bit(fin)) {
-			node = node->right;
-		} else {
-			node = node->left;
+		bit = get_bit(fin, finlen);
+		if (bit < 0) {
+			return qfalse;
 		}
+		node = bit ? node->right : node->left;
 	}
 	if (!node) {
 		*ch = 0;
-		return;
+		*offset = bloc;
+		return qtrue;
 //		Com_Error(ERR_DROP, "Illegal tree!\n");
 	}
 	*ch = node->symbol;
 	*offset = bloc;
+	return qtrue;
 }
 
 /* Send the prefix code for this node */
@@ -340,7 +352,9 @@ void Huff_Decompress(msg_t *mbuf, int offset) {
 	size = mbuf->cursize - offset;
 	buffer = mbuf->data + offset;
 
-	if ( size <= 0 ) {
+	// The first two bytes hold the uncompressed length.  A connectionless
+	// packet shorter than that must not be decoded at all.
+	if ( size < 2 || offset < 0 || offset > mbuf->cursize ) {
 		return;
 	}
 
@@ -361,17 +375,28 @@ void Huff_Decompress(msg_t *mbuf, int offset) {
 
 	for ( j = 0; j < cch; j++ ) {
 		ch = 0;
-		// don't overflow reading from the messages
-		// FIXME: would it be better to have a overflow check in get_bit ?
-		if ( (bloc >> 3) > size ) {
+		// get_bit() now refuses to read past size, so a truncated stream
+		// stops here instead of consuming bytes after the received packet.
+		if ( (bloc >> 3) >= size ) {
 			seq[j] = 0;
 			break;
 		}
-		Huff_Receive(huff.tree, &ch, buffer);				/* Get a character */
+		if ( Huff_Receive(huff.tree, &ch, buffer, size) < 0 ) { /* Get a character */
+			seq[j] = 0;
+			break;
+		}
 		if ( ch == NYT ) {								/* We got a NYT, get the symbol associated with it */
 			ch = 0;
 			for ( i = 0; i < 8; i++ ) {
-				ch = (ch<<1) + get_bit(buffer);
+				int bit = Huff_getBit(buffer, &bloc, size);
+				if ( bit < 0 ) {
+					break;
+				}
+				ch = (ch<<1) + bit;
+			}
+			if ( i != 8 ) {
+				seq[j] = 0;
+				break;
 			}
 		}
     

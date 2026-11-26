@@ -557,6 +557,9 @@ static void CG_OffsetThirdPersonView2( void )
 	tierConfig_cg *tier;
 
 	clientNum = cg.predictedPlayerState.clientNum;
+	if ( clientNum < 0 || clientNum >= MAX_CLIENTS ) {
+		clientNum = 0;
+	}
 	ci = &cgs.clientinfo[clientNum];
 
 	cameraStiffFactor = 0.0;
@@ -581,9 +584,20 @@ static void CG_OffsetThirdPersonView2( void )
 	}
 	// TRANSFORMATIONS
 	if(cg.snap->ps.timers[tmTransform] > 1){
-		tier = &ci->tierConfig[ci->tierCurrent];
+		int tierNum = ci->tierCurrent;
+		if ( tierNum < 0 || tierNum >= (int)(sizeof(ci->tierConfig) / sizeof(ci->tierConfig[0])) ) {
+			tierNum = 0;
+		}
+		tier = &ci->tierConfig[tierNum];
 		if(!ci->transformStart){
-			tier = &ci->tierConfig[ci->tierCurrent+1];
+			int tierNum = ci->tierCurrent + 1;
+			if ( tierNum < 0 || tierNum >= (int)(sizeof(ci->tierConfig) / sizeof(ci->tierConfig[0])) ) {
+				tierNum = ci->tierCurrent;
+			}
+			if ( tierNum < 0 || tierNum >= (int)(sizeof(ci->tierConfig) / sizeof(ci->tierConfig[0])) ) {
+				tierNum = 0;
+			}
+			tier = &ci->tierConfig[tierNum];
 			ci->transformStart = qtrue;
 			ci->transformLength = cg.snap->ps.timers[tmTransform];
 		}
@@ -707,6 +721,9 @@ static void CG_OffsetThirdPersonView( void ) {
 	tierConfig_cg *tier;
 	ps = &cg.predictedPlayerState;
 	clientNum = cg.predictedPlayerState.clientNum;
+	if ( clientNum < 0 || clientNum >= MAX_CLIENTS ) {
+		clientNum = 0;
+	}
 	ci = &cgs.clientinfo[clientNum];
 	if(cg_beamControl.value == 0){
 		if(((ps->weaponstate == WEAPON_GUIDING) || (ps->weaponstate == WEAPON_ALTGUIDING) ) && (cg.guide_view)) {
@@ -747,9 +764,20 @@ static void CG_OffsetThirdPersonView( void ) {
 	}
 	// TRANSFORMATIONS
 	if(ps->timers[tmTransform] > 1){
-		tier = &ci->tierConfig[ci->tierCurrent];
+		int tierNum = ci->tierCurrent;
+		if ( tierNum < 0 || tierNum >= (int)(sizeof(ci->tierConfig) / sizeof(ci->tierConfig[0])) ) {
+			tierNum = 0;
+		}
+		tier = &ci->tierConfig[tierNum];
 		if(!ci->transformStart){
-			tier = &ci->tierConfig[ci->tierCurrent+1];
+			int tierNum = ci->tierCurrent + 1;
+			if ( tierNum < 0 || tierNum >= (int)(sizeof(ci->tierConfig) / sizeof(ci->tierConfig[0])) ) {
+				tierNum = ci->tierCurrent;
+			}
+			if ( tierNum < 0 || tierNum >= (int)(sizeof(ci->tierConfig) / sizeof(ci->tierConfig[0])) ) {
+				tierNum = 0;
+			}
+			tier = &ci->tierConfig[tierNum];
 			ci->transformStart = qtrue;
 			ci->transformLength = ps->timers[tmTransform];
 		}
