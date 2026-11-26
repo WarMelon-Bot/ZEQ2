@@ -949,26 +949,38 @@ int Q_CountChar(const char *string, char tocount)
 	return count;
 }
 
+/*
+================
+Com_sprintf
+
+Formats directly into the caller's buffer.  The old implementation staged
+every result in a 32000 byte stack buffer and copied it a second time, which
+cost a large stack frame on every call and rejected otherwise valid output
+larger than the scratch buffer.  vsnprintf already guarantees termination and
+reports the untruncated length, so no intermediate copy is needed.
+================
+*/
 void QDECL Com_sprintf( char *dest, int size, const char *fmt, ...) {
 	int		len;
 	va_list		argptr;
-	char	bigbuffer[32000];	// big, but small enough to fit in PPC stack
+
+	if ( size <= 0 ) {
+		return;
+	}
 
 	va_start (argptr,fmt);
-	len = Q_vsnprintf (bigbuffer, sizeof(bigbuffer), fmt,argptr);
+	len = Q_vsnprintf (dest, (size_t)size, fmt, argptr);
 	va_end (argptr);
-	if ( len >= sizeof( bigbuffer ) ) {
-		Com_Error( ERR_FATAL, "Com_sprintf: overflowed bigbuffer" );
+
+	if ( len < 0 ) {
+		// Legacy vsnprintf implementations return -1 instead of the required
+		// length when truncating.  The destination is still terminated.
+		dest[0] = '\0';
+		return;
 	}
-	if (len >= size) {
+	if ( len >= size ) {
 		Com_Printf ("Com_sprintf: overflow of %i in %i\n", len, size);
-#ifdef	_DEBUG
-		__asm {
-			int 3;
-		}
-#endif
 	}
-	Q_strncpyz (dest, bigbuffer, size );
 }
 
 

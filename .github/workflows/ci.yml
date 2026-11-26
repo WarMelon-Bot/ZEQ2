@@ -1,0 +1,29 @@
+name: Build and Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install build dependencies
+        run: ./build.sh deps
+
+      - name: Build release and debug
+        run: ./build.sh build
+
+      - name: Run unit and smoke tests
+        run: ./build.sh test
+
+      - name: Verify warning-free clean rebuild
+        run: ./build.sh warnings

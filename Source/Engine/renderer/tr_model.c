@@ -139,29 +139,30 @@ qhandle_t RE_RegisterModel( const char *name ) {
 
 	for ( lod = MD3_MAX_LODS - 1 ; lod >= 0 ; lod-- ) {
 		char filename[1024];
+		size_t len;
 
-		strcpy( filename, name );
+		Q_strncpyz( filename, name, sizeof( filename ) );
 
 		if ( lod != 0 ) {
-			char namebuf[80];
+			char *dot = strrchr( filename, '.' );
 
-			if ( strrchr( filename, '.' ) ) {
-				*strrchr( filename, '.' ) = 0;
+			if ( dot ) {
+				*dot = '\0';
 			}
-			sprintf( namebuf, "_%d.md3", lod );
-			strcat( filename, namebuf );
+			len = strlen( filename );
+			Com_sprintf( filename + len, (int)( sizeof( filename ) - len ), "_%d.md3", lod );
 		}
 
 		fileLen = ri.FS_ReadFile( filename, (void **)&buf );
 		if ( !buf ) {
 			//try md4 if md3 is not present
-			char namebuf[80];
+			char *dot = strrchr( filename, '.' );
 
-			if ( strrchr( filename, '.' ) ) {
-				*strrchr( filename, '.' ) = 0;
+			if ( dot ) {
+				*dot = '\0';
 			}
-			sprintf( namebuf, ".zMesh" );
-			strcat( filename, namebuf );
+			len = strlen( filename );
+			Com_sprintf( filename + len, (int)( sizeof( filename ) - len ), ".zMesh" );
 
 			fileLen = ri.FS_ReadFile( filename, (void **)&buf );
 			if ( !buf ) {
@@ -181,17 +182,18 @@ qhandle_t RE_RegisterModel( const char *name ) {
 
 		if ( ident == MD4B_IDENT ) {
 			//load animations into a seperate buffer
-			char		animNamebuf[80];
 			char		animFilename[1024];
 			int			animIdent;
+			size_t		pathLen;
 
-			strcpy( animFilename, filename );
+			Q_strncpyz( animFilename, filename, sizeof( animFilename ) );
 
 			if ( strrchr( animFilename, '.' ) ) {
 				*strrchr( animFilename, '.' ) = 0;
 			}
-			sprintf( animNamebuf, ".zAnimation" );
-			strcat( animFilename, animNamebuf );
+			pathLen = strlen( animFilename );
+			Com_sprintf( animFilename + pathLen, (int)( sizeof( animFilename ) - pathLen ),
+				".zAnimation" );
 
 			animLen = ri.FS_ReadFile( animFilename, (void **)&animBuf );
 			if ( !animBuf || animLen < (int)sizeof( animIdent ) ) {

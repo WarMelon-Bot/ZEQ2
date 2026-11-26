@@ -1967,8 +1967,11 @@ static qboolean ParseStage( shaderStage_t *stage, char **text )
 				token = COM_ParseExt( text, qfalse );
 				if ( token[0] == 0 )
 					break;
-				strcat( buffer, token );
-				strcat( buffer, " " );
+				// A malformed shader file must not overflow this buffer.
+				if ( strlen( buffer ) + strlen( token ) + 2 >= sizeof( buffer ) )
+					break;
+				Q_strcat( buffer, sizeof( buffer ), token );
+				Q_strcat( buffer, sizeof( buffer ), " " );
 			}
 
 			ParseTexMod( buffer, stage );

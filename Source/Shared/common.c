@@ -3544,3 +3544,19 @@ void Com_RandomBytes( byte *string, int len )
 		string[i] = (unsigned char)( rand() % 255 );
 }
 
+/*
+==================
+Com_RandomInt
+
+Returns an OS-seeded random int.  Used for connection challenges, where a
+predictable value would let a spoofed client answer without seeing the reply.
+==================
+*/
+int Com_RandomInt( void )
+{
+	int value;
+
+	Com_RandomBytes( (byte *)&value, sizeof( value ) );
+	return value;
+}
+

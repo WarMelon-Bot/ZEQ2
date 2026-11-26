@@ -309,7 +309,8 @@ rescan:
 		if( strlen(bigConfigString) + strlen(s) >= BIG_INFO_STRING ) {
 			Com_Error( ERR_DROP, "bcs exceeded BIG_INFO_STRING" );
 		}
-		strcat( bigConfigString, s );
+		Q_strncpyz( bigConfigString + strlen( bigConfigString ), s,
+			BIG_INFO_STRING - (int)strlen( bigConfigString ) );
 		return qfalse;
 	}
 
@@ -318,8 +319,9 @@ rescan:
 		if( strlen(bigConfigString) + strlen(s) + 1 >= BIG_INFO_STRING ) {
 			Com_Error( ERR_DROP, "bcs exceeded BIG_INFO_STRING" );
 		}
-		strcat( bigConfigString, s );
-		strcat( bigConfigString, "\"" );
+		Q_strncpyz( bigConfigString + strlen( bigConfigString ), s,
+			BIG_INFO_STRING - (int)strlen( bigConfigString ) );
+		Q_strcat( bigConfigString, BIG_INFO_STRING, "\"" );
 		s = bigConfigString;
 		goto rescan;
 	}

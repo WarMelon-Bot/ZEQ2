@@ -1042,6 +1042,10 @@ void	Sys_SnapVector( float *v );
 
 qboolean Sys_RandomBytes( byte *string, int len );
 
+// OS-seeded random int for network challenges and other non-deterministic
+// engine values.  Gameplay randomness must continue to use rand().
+int		Com_RandomInt( void );
+
 // the system console is shown when a dedicated server is running
 void	Sys_DisplaySystemConsole( qboolean show );
 

@@ -421,6 +421,30 @@ chat_message_test() {
         "$binary"
 }
 
+string_test() {
+    local cc="${CC:-cc}" binary="$TEST_DIR/string-tests"
+    local sanitizers=""
+
+    log "Building and running string formatter regression tests..."
+    mkdir -p "$TEST_DIR"
+    if printf 'int main(void) { return 0; }\n' | \
+        "$cc" -x c - -o "$TEST_DIR/string-sanitizer-probe" -fsanitize=address,undefined >/dev/null 2>&1; then
+        sanitizers="-fsanitize=address,undefined -fno-omit-frame-pointer"
+    fi
+    rm -f "$TEST_DIR/string-sanitizer-probe"
+
+    # shellcheck disable=SC2086
+    "$cc" -std=gnu17 -g -O1 -Wall -Wextra $sanitizers \
+        -I "$SOURCE_DIR/Shared" -I "$SOURCE_DIR/Engine/client" \
+        -o "$binary" \
+        "$SOURCE_DIR/Tests/test_string_safety.c" \
+        "$SOURCE_DIR/Shared/q_shared.c" -lm
+
+    ASAN_OPTIONS=detect_leaks=1 \
+        UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
+        "$binary"
+}
+
 network_safety_test() {
     local cc="${CC:-cc}" binary="$TEST_DIR/network-safety-tests" probe="$TEST_DIR/sanitizer-probe"
     local sanitizers=""
@@ -1048,6 +1072,7 @@ Commands:
   pmove-test  Build and run deterministic movement/melee/weapon regression tests
   connect-cache-test  Run model config cache regression tests
   chat-message-test  Run client chat/message hardening regression tests
+  string-test  Com_sprintf truncation/stack-safety regression tests
   network-safety-test  Run untrusted network message parser regression tests
   connect-userinfo-test  Sanitizer test for oversized connect userinfo packets
   integration-test  Connect a client to a real server and exercise all actions
@@ -1093,6 +1118,7 @@ while (($#)); do
                   "$1" == memory-test || "$1" == memory-test-asan || \
                   "$1" == pmove-test || "$1" == connect-cache-test || \
                    "$1" == chat-message-test || \
+                   "$1" == string-test || \
                    "$1" == network-safety-test || "$1" == connect-userinfo-test || \
                   "$1" == integration-test || "$1" == vulkan_smoke_test || \
                   "$1" == warnings || \
@@ -1116,6 +1142,7 @@ case "$command_name" in
         pmove_test
         connect_cache_test
         chat_message_test
+        string_test
         network_safety_test
         smoke_test
         memory_limit_test
@@ -1141,6 +1168,7 @@ case "$command_name" in
         pmove_test
         connect_cache_test
         chat_message_test
+        string_test
         network_safety_test
         smoke_test
         memory_limit_test
@@ -1156,6 +1184,9 @@ case "$command_name" in
         ;;
     chat-message-test)
         chat_message_test
+        ;;
+    string-test)
+        string_test
         ;;
     network-safety-test)
         network_safety_test

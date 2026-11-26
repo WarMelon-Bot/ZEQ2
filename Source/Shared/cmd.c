@@ -360,6 +360,40 @@ void	Cmd_ArgvBuffer( int arg, char *buffer, int bufferLength ) {
 
 /*
 ============
+Cmd_JoinArgs
+
+Joins argv[start..argc-1] without ever writing past the destination.  The
+previous implementation used unbounded strcat() on static buffers, so a long
+console command or a long chat message could overflow them.
+============
+*/
+static void Cmd_JoinArgs( int start, char *buffer, int bufferSize ) {
+	int i, len;
+
+	if ( bufferSize <= 0 ) {
+		return;
+	}
+
+	buffer[0] = '\0';
+	for ( i = start ; i < cmd_argc ; i++ ) {
+		len = strlen( buffer );
+		if ( len >= bufferSize - 1 ) {
+			break;
+		}
+		Q_strncpyz( buffer + len, cmd_argv[i], bufferSize - len );
+
+		if ( i != cmd_argc - 1 ) {
+			len = strlen( buffer );
+			if ( len < bufferSize - 1 ) {
+				buffer[ len++ ] = ' ';
+				buffer[ len ] = '\0';
+			}
+		}
+	}
+}
+
+/*
+============
 Cmd_Args
 
 Returns a single string containing argv(1) to argv(argc()-1)
@@ -367,40 +401,25 @@ Returns a single string containing argv(1) to argv(argc()-1)
 */
 char	*Cmd_Args( void ) {
 	static	char		cmd_args[MAX_STRING_CHARS];
-	int		i;
 
-	cmd_args[0] = 0;
-	for ( i = 1 ; i < cmd_argc ; i++ ) {
-		strcat( cmd_args, cmd_argv[i] );
-		if ( i != cmd_argc-1 ) {
-			strcat( cmd_args, " " );
-		}
-	}
-
+	Cmd_JoinArgs( 1, cmd_args, sizeof( cmd_args ) );
 	return cmd_args;
 }
 
 /*
 ============
-Cmd_Args
+Cmd_ArgsFrom
 
 Returns a single string containing argv(arg) to argv(argc()-1)
 ============
 */
 char *Cmd_ArgsFrom( int arg ) {
 	static	char		cmd_args[BIG_INFO_STRING];
-	int		i;
 
-	cmd_args[0] = 0;
-	if (arg < 0)
+	if (arg < 0) {
 		arg = 0;
-	for ( i = arg ; i < cmd_argc ; i++ ) {
-		strcat( cmd_args, cmd_argv[i] );
-		if ( i != cmd_argc-1 ) {
-			strcat( cmd_args, " " );
-		}
 	}
-
+	Cmd_JoinArgs( arg, cmd_args, sizeof( cmd_args ) );
 	return cmd_args;
 }
 
