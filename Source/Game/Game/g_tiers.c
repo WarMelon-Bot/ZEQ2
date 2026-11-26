@@ -1,4 +1,24 @@
 #include "g_local.h"
+
+#define TIER_CACHE_ENTRIES	32
+
+// Model tier configs are static data shipped with the game.  Reading and
+// parsing the same files again for every connect/userinfo change blocked the
+// server thread, so keep one parsed copy per model per level.
+typedef struct {
+	char			model[MAX_QPATH];
+	qboolean	valid;
+	tierConfig_g	tiers[8];
+} tierCacheEntry_t;
+
+static tierCacheEntry_t	tierCache[TIER_CACHE_ENTRIES];
+static int				tierCacheNext;
+
+void G_ClearTierCache( void ) {
+	memset( tierCache, 0, sizeof( tierCache ) );
+	tierCacheNext = 0;
+}
+
 void parseTier(char *path,tierConfig_g *tier);
 void syncTier(gclient_t *client){
 	tierConfig_g *tier;
@@ -100,27 +120,53 @@ void checkTier(gclient_t *client){
 void setupTiers(gclient_t *client){
 	int	i;
 	tierConfig_g *tier;
-	char *modelName;
 	char *tierPath;
-	modelName = client->modelName;
+	tierCacheEntry_t *entry = NULL;
+
+	for(i=0;i<TIER_CACHE_ENTRIES;i++){
+		if(tierCache[i].valid && !Q_stricmp(tierCache[i].model,client->modelName)){
+			entry = &tierCache[i];
+			break;
+		}
+	}
+
+	if(entry){
+		memcpy(client->tiers,entry->tiers,sizeof(client->tiers));
+		syncTier(client);
+		return;
+	}
+
 	for(i=0;i<8;i++){
 		tier = &client->tiers[i];
 		memset(tier,0,sizeof(tierConfig_g));
-		tierPath = va("players/%s/tier%i/",modelName,i+1);
+		tierPath = va("players/%s/tier%i/",client->modelName,i+1);
 		parseTier("players/tierDefault.cfg",tier);
 		parseTier(strcat(tierPath,"tier.cfg"),tier);
 	}
+
+	// reuse the oldest slot once the cache is full
+	entry = &tierCache[tierCacheNext];
+	tierCacheNext = (tierCacheNext + 1) % TIER_CACHE_ENTRIES;
+	Q_strncpyz(entry->model,client->modelName,sizeof(entry->model));
+	memcpy(entry->tiers,client->tiers,sizeof(entry->tiers));
+	entry->valid = qtrue;
+
 	syncTier(client);
 }
 void parseTier(char *path,tierConfig_g *tier){
-	fileHandle_t tierCFG;
+	fileHandle_t tierCFG = 0;
 	char *token,*parse;
 	int fileLength;
 	char fileContents[32000];
 	tier->exists = qfalse;
-	if(trap_FS_FOpenFile(path,0,FS_READ)>0){
+	// one open is enough: the old code opened every file twice just to
+	// check whether it existed
+	fileLength = trap_FS_FOpenFile(path,&tierCFG,FS_READ);
+	if(tierCFG && fileLength >= 0){
+		if(fileLength >= (int)sizeof(fileContents)){
+			fileLength = (int)sizeof(fileContents)-1;
+		}
 		tier->exists = qtrue;
-		fileLength = trap_FS_FOpenFile(path,&tierCFG,FS_READ);
 		trap_FS_Read(fileContents,fileLength,tierCFG);
 		fileContents[fileLength] = 0;
 		trap_FS_FCloseFile(tierCFG);

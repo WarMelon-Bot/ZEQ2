@@ -621,6 +621,7 @@ void ClientUserinfoChanged( int clientNum ) {
 	char	blueTeam[MAX_INFO_STRING];
 	char	userinfo[MAX_INFO_STRING];
 	char    guid[MAX_INFO_STRING];
+	qboolean modelChanged;
 	shouldRespawn = 0;
 	ent = g_entities + clientNum;
 	client = ent->client;
@@ -661,6 +662,11 @@ void ClientUserinfoChanged( int clientNum ) {
 	Q_strncpyz( model, Info_ValueForKey (userinfo, "model"), sizeof( model ) );
 	Q_strncpyz( headModel, Info_ValueForKey (userinfo, "headmodel"), sizeof( headModel ) );
 	Q_strncpyz( legsModel, Info_ValueForKey (userinfo, "legsmodel"), sizeof( legsModel ) );
+	// ClientUserinfoChanged() runs on connect, again in ClientBegin(), and for
+	// every userinfo update.  Reloading the model's tier configs and weapon
+	// physics scripts each time performed synchronous disk I/O in the server
+	// thread and hitched every player on the server.
+	modelChanged = !client->modelConfigLoaded || Q_stricmp( model, ent->modelName ) != 0;
 	if(strcmp(model,ent->modelName)){
 		if(client->ps.powerLevel[plHealth]>0){shouldRespawn = 1;}
 		if(((float)client->ps.powerLevel[plHealth]/(float)client->ps.powerLevel[plMaximum])<0.75){shouldRespawn = 2;}
@@ -674,40 +680,41 @@ void ClientUserinfoChanged( int clientNum ) {
 	client->ps.running = g_running.value;
 	// ADDING FOR ZEQ2
 	// REFPOINT: Loading the serverside weaponscripts here.
-	{
+	if ( modelChanged ) {
 		char	filename[MAX_QPATH];
-		char	modelName[MAX_QPATH];
-		char	skinName[MAX_QPATH];
 		char	modelStr[MAX_QPATH];
+		char	skinName[MAX_QPATH];
 		char	*skin;
-		int		i;
 
 		Q_strncpyz( modelStr, model, sizeof(modelStr));
 
 		if ( ( skin = strchr( modelStr, '/' ) ) == NULL) {
-				skin = "default";
-			} else {
-				*skin++ = 0;
+			skin = "default";
+		} else {
+			*skin++ = 0;
 		}
 
 		Q_strncpyz( skinName, skin, sizeof( skinName ) );
-		Q_strncpyz( modelName, modelStr, sizeof( modelName ) );
-		client->modelName = modelName;
+		Q_strncpyz( client->modelName, modelStr, sizeof( client->modelName ) );
 		setupTiers(client);
-		
-		Com_sprintf( filename, sizeof( filename ), "players/%s/%s.phys", modelName, skinName );
+
+		Com_sprintf( filename, sizeof( filename ), "players/%s/%s.phys", modelStr, skinName );
 		if(trap_FS_FOpenFile(filename,0,FS_READ)<=0){
 			Com_sprintf( filename, sizeof( filename ), "players/%s/%s.phys", "goku", "default" );
 		}
 		G_weapPhys_Parse( filename, clientNum );
+		client->modelConfigLoaded = qtrue;
+	}
 
-		// Set the weapon mask here, incase we changed models on the fly.
-		// FIXME: Can be removed eventually, when we will disallow on the fly
-		//        switching.
-		client->ps.stats[stSkills] = *G_FindUserWeaponMask( clientNum );
+	// Set the weapon mask here, incase we changed models on the fly.
+	// FIXME: Can be removed eventually, when we will disallow on the fly
+	//        switching.
+	client->ps.stats[stSkills] = *G_FindUserWeaponMask( clientNum );
 
-		// force a new weapon up if the current one is unavailable now.
-		// Search downward
+	// force a new weapon up if the current one is unavailable now.
+	// Search downward
+	{
+		int i;
 		for ( i = MAX_PLAYERWEAPONS; i > 0; i-- ) {
 			// We found a valid weapon
 			if ( client->ps.stats[stSkills] & (1 << i) ) {
