@@ -549,20 +549,10 @@ client_smoke_test() {
     fi
 }
 
-vulkan_smoke_test() {
-    [[ "$PLATFORM" == linux ]] || return 0
-    command -v xvfb-run >/dev/null 2>&1 || {
-        warn "xvfb-run not found; skipping the headless Vulkan smoke test."
-        return 0
-    }
-
+run_vulkan_smoke_test() {
+    local label="$1" smp="$2" expect_thread="$3"
     local binary logfile home_dir status=0 icd
     binary="$(find_binary "$RELEASE_DIR" 'ZEQ2.*')" || die "Client was not built."
-    grep -aq 'Vulkan backend initialized' "$binary" || {
-        warn "This build has no Vulkan backend; skipping the Vulkan smoke test."
-        return 0
-    }
-
     logfile="$(mktemp)"
     home_dir="$(mktemp -d)"
     icd=/usr/share/vulkan/icd.d/lvp_icd.json
@@ -571,11 +561,12 @@ vulkan_smoke_test() {
         driver_files="$icd"
     fi
 
-    log "Smoke-testing the Vulkan backend (Xvfb/lavapipe)..."
+    log "Smoke-testing ${label} (Xvfb/lavapipe)..."
     (cd "$RELEASE_DIR" && HOME="$home_dir" \
         VK_ICD_FILENAMES="$driver_files" \
         timeout 45 xvfb-run -a "./$(basename "$binary")" \
-        +set r_renderer vulkan +set r_smp 0 +set r_measureOverdraw 1 +wait 30 +quit) >"$logfile" 2>&1 || status=$?
+        +set r_renderer vulkan +set r_smp "$smp" +set r_measureOverdraw 1 \
+        +wait 30 +quit) >"$logfile" 2>&1 || status=$?
 
     if ((status != 0)); then
         cat "$logfile" >&2
@@ -597,9 +588,45 @@ vulkan_smoke_test() {
         rm -rf "$home_dir" "$logfile"
         die "Vulkan shader or pipeline creation failed."
     fi
+    if [[ "$expect_thread" == yes ]]; then
+        grep -q 'Render thread starting' "$logfile" || {
+            cat "$logfile" >&2
+            rm -rf "$home_dir" "$logfile"
+            die "$label did not start the render thread."
+        }
+        grep -q 'Render thread terminating' "$logfile" || {
+            cat "$logfile" >&2
+            rm -rf "$home_dir" "$logfile"
+            die "$label did not shut the render thread down cleanly."
+        }
+    else
+        if grep -q 'Render thread starting' "$logfile"; then
+            cat "$logfile" >&2
+            rm -rf "$home_dir" "$logfile"
+            die "$label started a render thread even though r_smp was disabled."
+        fi
+    fi
 
     rm -rf "$home_dir" "$logfile"
-    log "Passed: Vulkan backend smoke test"
+    log "Passed: $label"
+}
+
+vulkan_smoke_test() {
+    [[ "$PLATFORM" == linux ]] || return 0
+    command -v xvfb-run >/dev/null 2>&1 || {
+        warn "xvfb-run not found; skipping the headless Vulkan smoke test."
+        return 0
+    }
+
+    local binary
+    binary="$(find_binary "$RELEASE_DIR" 'ZEQ2.*')" || die "Client was not built."
+    grep -aq 'Vulkan backend initialized' "$binary" || {
+        warn "This build has no Vulkan backend; skipping the Vulkan smoke test."
+        return 0
+    }
+
+    run_vulkan_smoke_test "Vulkan backend (single-threaded option)" 0 no
+    run_vulkan_smoke_test "Vulkan backend (threaded renderer)" 1 yes
 }
 
 # ---------------------------------------------------------------------------

@@ -1132,6 +1132,21 @@ static volatile qboolean smpDataReady = qfalse;
 static qboolean glimpRenderThreadActive = qfalse;
 
 /*
+ * The Vulkan backend records and presents entirely from the back end, so no
+ * GL context has to migrate between threads.  Skipping the GLX hand-off lets
+ * the render thread run on every platform where SDL can create the window,
+ * including drivers without a shareable GL context.
+ */
+static qboolean SMP_NeedsGLContext( void )
+{
+#ifdef HAVE_VULKAN
+	return !QGL_UsingVulkan();
+#else
+	return qtrue;
+#endif
+}
+
+/*
  * The "active" flag is only used for r_showSmp statistics, but it is written
  * by the render thread and read by the front end.  Guard it with smpMutex so
  * the diagnostic output is not itself a data race.
@@ -1200,10 +1215,13 @@ void GLimp_ShutdownRenderThread(void)
 	smpDataReady = qfalse;
 	glimpRenderThreadActive = qfalse;
 
-	/* The main thread owns the GL context again for texture teardown.  Refresh
-	 * the cached X11 drawable in case a fullscreen change recreated it. */
-	GLimp_GetCurrentContext();
-	GLimp_SetCurrentContext(opengl_context);
+	if ( SMP_NeedsGLContext() ) {
+		/* The main thread owns the GL context again for texture teardown.
+		 * Refresh the cached X11 drawable in case a fullscreen change
+		 * recreated it. */
+		GLimp_GetCurrentContext();
+		GLimp_SetCurrentContext(opengl_context);
+	}
 }
 
 /*
@@ -1219,7 +1237,9 @@ static int GLimp_RenderThreadWrapper( void *arg )
 		glimpRenderThread();
 	}
 
-	GLimp_SetCurrentContext(NULL);
+	if ( SMP_NeedsGLContext() ) {
+		GLimp_SetCurrentContext(NULL);
+	}
 
 	Com_Printf( "Render thread terminating\n" );
 
@@ -1244,15 +1264,6 @@ qboolean GLimp_SpawnRenderThread( void (*function)( void ) )
 		GLimp_ShutdownRenderThread();
 	}
 
-#ifdef HAVE_VULKAN
-	/* Vulkan command buffers are recorded by the front end; the old GLX
-	   context handoff does not apply. */
-	if ( QGL_UsingVulkan() )
-	{
-		return qfalse;
-	}
-#endif
-
 	if (!reported)
 	{
 		/* r_smp is on by default now, so this is informational only. */
@@ -1261,16 +1272,22 @@ qboolean GLimp_SpawnRenderThread( void (*function)( void ) )
 	}
 
 #ifdef MACOS_X
-	return qfalse;  /* CGL context migration is not enabled in this build. */
+	if ( SMP_NeedsGLContext() ) {
+		return qfalse;  /* CGL context migration is not enabled in this build. */
+	}
 #else
 #if !defined( SDL_VIDEO_DRIVER_X11 )
-	/* Without GLX (or CGL) we cannot hand the GL context to another thread. */
-	ri.Printf( PRINT_DEVELOPER, "SMP rendering requires X11/GLX; disabled.\n" );
-	return qfalse;
+	/* Without GLX (or CGL) we cannot hand the GL context to another thread.
+	 * Vulkan records its own command buffers and does not need either. */
+	if ( SMP_NeedsGLContext() ) {
+		ri.Printf( PRINT_DEVELOPER, "SMP rendering requires X11/GLX; disabled.\n" );
+		return qfalse;
+	}
 #endif
-	if ( opengl_context == NULL || smpDisplay == NULL || smpWindow == 0 )
+	if ( SMP_NeedsGLContext() &&
+	     ( opengl_context == NULL || smpDisplay == NULL || smpWindow == 0 ) )
 	{
-		/* Non-X11 SDL drivers (dummy, fbcon, ...) cannot run the back end
+		/* Non-X11 SDL drivers (dummy, fbcon, ...) cannot run the GL back end
 		 * on a second thread; fall back to the safe single-core renderer. */
 		Com_Printf( "No shareable GLX context; disabling SMP rendering.\n" );
 		return qfalse;
@@ -1310,7 +1327,7 @@ qboolean GLimp_SpawnRenderThread( void (*function)( void ) )
 		return qfalse;
 	}
 
-	/* The main thread keeps the GL context until the first
+	/* With OpenGL the main thread keeps the context until the first
 	 * GLimp_WakeRenderer() hand-off.  R_Init() still creates GL objects after
 	 * the thread is spawned; dropping the context here would leave no thread
 	 * with a current context during that work. */
@@ -1326,7 +1343,9 @@ void *GLimp_RendererSleep( void )
 {
 	void  *data = NULL;
 
-	GLimp_SetCurrentContext(NULL);
+	if ( SMP_NeedsGLContext() ) {
+		GLimp_SetCurrentContext(NULL);
+	}
 
 	SDL_LockMutex(smpMutex);
 	{
@@ -1343,7 +1362,9 @@ void *GLimp_RendererSleep( void )
 	}
 	SDL_UnlockMutex(smpMutex);
 
-	GLimp_SetCurrentContext(opengl_context);
+	if ( SMP_NeedsGLContext() ) {
+		GLimp_SetCurrentContext(opengl_context);
+	}
 
 	return data;
 }
@@ -1366,10 +1387,13 @@ void GLimp_FrontEndSleep( void )
 	}
 	SDL_UnlockMutex(smpMutex);
 
-	/* The main thread may have recreated the X window (fullscreen toggle),
-	 * so refresh the cached drawable before taking the context back. */
-	GLimp_GetCurrentContext();
-	GLimp_SetCurrentContext(opengl_context);
+	if ( SMP_NeedsGLContext() ) {
+		/* The main thread may have recreated the X window (fullscreen
+		 * toggle), so refresh the cached drawable before taking the
+		 * context back. */
+		GLimp_GetCurrentContext();
+		GLimp_SetCurrentContext(opengl_context);
+	}
 }
 
 /*
@@ -1383,11 +1407,13 @@ void GLimp_WakeRenderer( void *data )
 		return;
 	}
 
-	/* Refresh the X11 drawable on the main thread, then hand the context to
-	 * the render thread.  The window may have been recreated since the last
-	 * hand-off. */
-	GLimp_GetCurrentContext();
-	GLimp_SetCurrentContext(NULL);
+	if ( SMP_NeedsGLContext() ) {
+		/* Refresh the X11 drawable on the main thread, then hand the context
+		 * to the render thread.  The window may have been recreated since
+		 * the last hand-off. */
+		GLimp_GetCurrentContext();
+		GLimp_SetCurrentContext(NULL);
+	}
 
 	SDL_LockMutex(smpMutex);
 	{
