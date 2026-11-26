@@ -14,6 +14,7 @@
 #   ./build.sh chat-message-test  run client chat/message hardening regression tests
 #   ./build.sh network-safety-test  run untrusted network message parser regression tests
 #   ./build.sh connect-userinfo-test  sanitizer test for oversized connect userinfo
+#   ./build.sh integration-test  connect a client to a real server and exercise actions
 #   ./build.sh warnings        clean rebuild that fails on any compiler warning
 #   ./build.sh run [args...]   run the graphical client
 #   ./build.sh smp [args...]   run the multi-threaded renderer client
@@ -775,6 +776,261 @@ vulkan_smoke_test() {
 }
 
 # ---------------------------------------------------------------------------
+# Connected client / server integration test
+# ---------------------------------------------------------------------------
+
+integration_test() {
+    if [[ "$PLATFORM" != linux && "$PLATFORM" != darwin ]]; then
+        warn "Skipping the integration test on platform $PLATFORM."
+        return 0
+    fi
+    if ! command -v xvfb-run >/dev/null 2>&1; then
+        warn "xvfb-run not found; skipping the integration test."
+        return 0
+    fi
+
+    prepare_runtime "$RELEASE_DIR"
+    local server_binary client_binary
+    server_binary="$(find_binary "$RELEASE_DIR" 'ZEQ2Dedicated.*')" || die "Dedicated server was not built."
+    client_binary="$(find_binary "$RELEASE_DIR" 'ZEQ2.*')" || die "Client was not built."
+
+    local work_dir
+    work_dir="$(mktemp -d)"
+    server_pid=""
+    # shellcheck disable=SC2317
+    cleanup_integration() {
+        [[ -n "$server_pid" ]] && kill "$server_pid" 2>/dev/null || true
+        [[ -n "$server_pid" ]] && wait "$server_pid" 2>/dev/null || true
+        rm -rf "$work_dir"
+    }
+    trap cleanup_integration RETURN
+
+    # Build the minimal BSP used by this test.  A start with a solid floor is
+    # enough for the game VM to spawn a player and process user commands.
+    python3 "$SOURCE_DIR/Tests/generate_test_map.py" \
+        "$RELEASE_DIR/ZEQ2/maps/testroom.bsp" >/dev/null
+
+    # The default player model has no real assets in this source tree.  A
+    # minimal animation.cfg keeps cgame from aborting on a missing model.
+    mkdir -p "$RELEASE_DIR/ZEQ2/players/goku"
+    printf 'footsteps default\nsex male\n0 1 0 10\n' \
+        > "$RELEASE_DIR/ZEQ2/players/goku/animation.cfg"
+
+    # Actions are driven from a config file rather than +command arguments.
+    # The engine strips leading '+' when parsing the command line, but config
+    # files preserve them, so +forward etc. reach the input system correctly.
+    cat > "$RELEASE_DIR/ZEQ2/test-actions.cfg" <<'CFGEOF'
+wait 100
+viewpos
++forward
+wait 20
+-forward
++back
+wait 20
+-back
++moveleft
+wait 20
+-moveleft
++moveright
+wait 20
+-moveright
++strafe
+wait 20
+-strafe
++left
+wait 20
+-left
++right
+wait 20
+-right
++lookup
+wait 20
+-lookup
++lookdown
+wait 20
+-lookdown
++mlook
+wait 20
+-mlook
++moveup
+wait 20
+-moveup
++movedown
+wait 20
+-movedown
++speed
+wait 20
+-speed
++attack
+wait 20
+-attack
++button1
+wait 6
+-button1
++button2
+wait 6
+-button2
++button3
+wait 6
+-button3
++button4
+wait 6
+-button4
++button5
+wait 6
+-button5
++button6
+wait 6
+-button6
++button7
+wait 6
+-button7
++button8
+wait 6
+-button8
++button9
+wait 6
+-button9
++scores
+wait 6
+-scores
++zoom
+wait 6
+-zoom
+weapnext
+weapprev
+weapon 1
+sizeup
+sizedown
+stats
+loaddeferred
+viewpos
+say integration_chat
+say_team integration_team_chat
+give all
+god
+notarget
+noclip
+wait 30
+viewpos
+quit
+CFGEOF
+
+    # Pick a free UDP port so parallel test runs cannot collide.
+    local port
+    port="$(python3 -c 'import socket; s=socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')"
+
+    local client_log="$work_dir/client.log"
+    local server_log="$work_dir/server.log"
+    local home_dir="$work_dir/home"
+    mkdir -p "$home_dir"
+
+    log "Starting dedicated server on port $port..."
+    (
+        cd "$RELEASE_DIR"
+        exec "./$(basename "$server_binary")" \
+            +set developer 1 \
+            +set sv_maxclients 4 \
+            +set sv_pure 0 \
+            +set sv_cheats 1 \
+            +set sv_floodProtect 0 \
+            +set net_port "$port" \
+            +map testroom
+    ) >"$server_log" 2>&1 &
+    server_pid=$!
+
+    # Wait until the game VM has loaded and the map is running.
+    local ready=0 i
+    for i in $(seq 1 100); do
+        if grep -q 'Game Initialization' "$server_log"; then
+            ready=1
+            break
+        fi
+        kill -0 "$server_pid" 2>/dev/null || break
+        sleep 0.1
+    done
+    if (( ! ready )); then
+        cat "$server_log" >&2
+        die "Dedicated server did not finish game initialization."
+    fi
+
+    log "Connecting client and exercising movement, combat, chat, and console actions..."
+    local client_status=0
+    (
+        cd "$RELEASE_DIR"
+        HOME="$home_dir" timeout 180 xvfb-run -a "./$(basename "$client_binary")" \
+            +set cl_pure 0 \
+            +set s_backend null \
+            +connect "127.0.0.1:$port" \
+            +exec test-actions.cfg
+    ) >"$client_log" 2>&1 || client_status=$?
+
+    kill "$server_pid" 2>/dev/null || true
+    wait "$server_pid" 2>/dev/null || true
+    server_pid=""
+
+    if (( client_status != 0 )); then
+        cat "$client_log" >&2
+        die "Connected client exited with status $client_status."
+    fi
+
+    # Validate the full connect -> enter game -> act -> chat -> disconnect cycle.
+    local failure=0
+    check_log() {
+        local label="$1" file="$2" pattern="$3"
+        if ! grep -qE "$pattern" "$file"; then
+            printf '  missing %s (%s)\n' "$label" "$pattern" >&2
+            failure=1
+        fi
+    }
+
+    check_log "client init" "$client_log" 'CL_InitCGame'
+    check_log "client load cgame VM" "$client_log" 'cgame.*loaded|vm/cgame.qvm'
+    check_log "client clean quit" "$client_log" 'Client Shutdown \(Client quit\)'
+    check_log "server accept" "$server_log" 'ClientConnect: 0'
+    check_log "server enter game" "$server_log" 'ClientBegin: 0'
+    check_log "server saw chat" "$server_log" 'say: UnnamedPlayer: integration_chat'
+    # With g_gametype 0 (non-team) the game converts SAY_TEAM to SAY_ALL, so
+    # accept either log prefix as long as the message reached the server.
+    check_log "server saw team chat" "$server_log" '(say|sayteam): UnnamedPlayer: integration_team_chat'
+    check_log "server saw disconnect" "$server_log" 'ClientDisconnect: 0'
+
+    # Real errors must never appear.  Asset/file warnings and headless ALSA
+    # noise are expected in this source-only test environment and are ignored.
+    for pattern in \
+        '^ERROR:' \
+        'Com_Error' \
+        'DEFAULT_MODEL .* failed to register' \
+        'Unknown command' \
+        'client text ignored' \
+        'Segmentation fault' \
+        'AddressSanitizer' \
+        'cmdCount <[=] 0' \
+        'lost .* clientCommands'; do
+        if grep -qE "$pattern" "$client_log" || grep -qE "$pattern" "$server_log"; then
+            printf '  unexpected error matching %s\n' "$pattern" >&2
+            failure=1
+        fi
+    done
+
+    if (( failure )); then
+        printf '\n--- client log ---\n' >&2
+        cat "$client_log" >&2
+        printf '\n--- server log ---\n' >&2
+        cat "$server_log" >&2
+        die "Client/server integration test failed."
+    fi
+
+    local positions
+    positions="$(grep -cE '\([-0-9]+ [-0-9]+ [-0-9]+\) : [-0-9]+' "$client_log")"
+    if (( positions < 2 )); then
+        die "Movement did not produce multiple viewpos reports (got $positions)."
+    fi
+
+    log "Integration test passed: client connected, moved, attacked, chatted, and disconnected cleanly."
+}
+
+# ---------------------------------------------------------------------------
 # Command line
 # ---------------------------------------------------------------------------
 
@@ -797,6 +1053,7 @@ Commands:
   chat-message-test  Run client chat/message hardening regression tests
   network-safety-test  Run untrusted network message parser regression tests
   connect-userinfo-test  Sanitizer test for oversized connect userinfo packets
+  integration-test  Connect a client to a real server and exercise all actions
   vulkan_smoke_test  Smoke-test the Vulkan client under Xvfb (lavapipe)
   warnings  Fresh release+debug rebuild; fail if any compiler warning appears
   win64     Cross-build Windows x64 server and game modules (needs mingw-w64)
@@ -840,7 +1097,8 @@ while (($#)); do
                   "$1" == pmove-test || "$1" == connect-cache-test || \
                    "$1" == chat-message-test || \
                    "$1" == network-safety-test || "$1" == connect-userinfo-test || \
-                  "$1" == vulkan_smoke_test || "$1" == warnings || \
+                  "$1" == integration-test || "$1" == vulkan_smoke_test || \
+                  "$1" == warnings || \
                   "$1" == win64 || "$1" == android || \
                   "$1" == run || "$1" == smp || "$1" == server || "$1" == clean ]]; then
                 command_name="$1"
@@ -866,6 +1124,7 @@ case "$command_name" in
         memory_limit_test
         client_smoke_test
         vulkan_smoke_test
+        integration_test
         ;;
     deps)
         ensure_deps
@@ -890,6 +1149,7 @@ case "$command_name" in
         memory_limit_test
         client_smoke_test
         vulkan_smoke_test
+        integration_test
         ;;
     pmove-test)
         pmove_test
@@ -905,6 +1165,9 @@ case "$command_name" in
         ;;
     connect-userinfo-test)
         connect_userinfo_test
+        ;;
+    integration-test)
+        integration_test
         ;;
     memory-limit-test)
         memory_limit_test
