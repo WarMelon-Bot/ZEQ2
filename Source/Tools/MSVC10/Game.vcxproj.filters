@@ -22,6 +22,14 @@
     </ClCompile>
     <ClCompile Include="..\..\Game\Game\bg_pmove.c">
       <Filter>Source Files</Filter>
+    </ClCompile><ClCompile Include="..\..\Game\Game\bg_pmanim.c">
+      <Filter>Source Files</Filter>
+    </ClCompile><ClCompile Include="..\..\Game\Game\bg_pmmelee.c">
+      <Filter>Source Files</Filter>
+    </ClCompile><ClCompile Include="..\..\Game\Game\bg_pmmove.c">
+      <Filter>Source Files</Filter>
+    </ClCompile><ClCompile Include="..\..\Game\Game\bg_pmweapon.c">
+      <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="..\..\Game\Game\bg_slidemove.c">
       <Filter>Source Files</Filter>
