@@ -15,8 +15,18 @@ both `vulkan` and `shaderc`:
 ./build.sh release
 ```
 
-Set `USE_VULKAN=0` to build without it.  Other platforms keep the original
-OpenGL-only renderer.
+Set `USE_VULKAN=0` to build without it.  Other desktop platforms, including
+Windows, can opt in explicitly when the Vulkan headers and shaderc are
+available.  Point `VULKAN_SDK` at the SDK root when it is not on the default
+include/library path:
+
+```sh
+make USE_VULKAN=1 VULKAN_SDK=/path/to/vulkan/sdk
+```
+
+On Windows the Vulkan SDK plus shaderc must be available to the chosen
+compiler; MinGW cross-builds use the same `USE_VULKAN=1` switch.  Without those
+development dependencies, the renderer stays OpenGL-only.
 
 ## Selecting the backend
 
@@ -33,8 +43,18 @@ settings menu; because the cvar is latched, applying a change from the menu
 executes `vid_restart`.  If Vulkan cannot be initialized, the engine prints a
 message and falls back to OpenGL.
 
-The Vulkan path currently creates an Xlib surface, so an X11 display is
-required.  Headless smoke tests use Xvfb with lavapipe:
+## Window system surfaces
+
+The backend chooses the surface extension from the SDL window information
+instead of assuming X11:
+
+* **Windows:** native `VK_KHR_win32_surface` from the SDL `HWND`.
+* **X11/Unix (including XWayland):** `VK_KHR_xlib_surface` from the SDL X11
+  display and window.
+
+SDL 1.2 does not expose native Wayland or Quartz window handles through
+`SDL_GetWMInfo`, so native Wayland and native macOS sessions use the OpenGL
+backend.  Headless smoke tests use Xvfb with lavapipe:
 
 ```sh
 ./build.sh test          # includes the Vulkan smoke test
@@ -57,8 +77,10 @@ required.  Headless smoke tests use Xvfb with lavapipe:
   fixed-function features without a direct Vulkan equivalent may be partially
   emulated or ignored; shaders are still authoritative for final color and
   alpha.
-* Stencil is not implemented by the backend: it reports 0 stencil bits and
-  `GL_STENCIL_BITS` is 0, so stencil-based shadow paths disable themselves
-  (see `tr_shadows.c`) instead of relying on missing stencil operations.
-* `qglReadPixels(GL_DEPTH_COMPONENT, ...)` is not supported by the Vulkan
-  backend and fills the destination with `1.0f`; color readback is supported.
+* The framebuffer uses a packed depth/stencil attachment (`D24_UNORM_S8_UINT`
+  where available, otherwise `D32_SFLOAT_S8_UINT` or `D16_UNORM_S8_UINT`).
+  The backend reports 8 stencil bits through `GL_STENCIL_BITS` and
+  `glConfig.stencilBits`, so stencil shadows and overdraw measurement can run.
+* `qglReadPixels(GL_DEPTH_COMPONENT, ...)` copies the depth/stencil image to a
+  staging buffer and converts the selected format to GL-compatible depth
+  values.  `GL_STENCIL_INDEX` readback uses the same staging copy.
