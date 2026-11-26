@@ -2539,8 +2539,12 @@ qboolean CG_weapGfx_ParseRemoteDefinition( char *filename, char *refname ) {
 	scanner = &parser.scanner;
 	token = &parser.token;	
 
-	// Initialize the scanner by loading the file
-	CG_weapGfx_LoadFile( scanner, filename );
+	// Initialize the scanner by loading the file.  A load failure leaves the
+	// scanner position NULL, which is fatal in a native DLL but merely reads
+	// mapped VM memory in a QVM.
+	if ( !CG_weapGfx_LoadFile( scanner, filename ) ) {
+		return qfalse;
+	}
 
 	// Get the very first token initialized. If
 	// it is an end of file token, we will not parse
@@ -2713,8 +2717,12 @@ qboolean CG_weapGfx_Parse( char *filename, int clientNum ) {
 	token = &parser.token;
 	cg_weapGfxRecursionDepth = 0;
 	
-	// Initialize the scanner by loading the file
-	CG_weapGfx_LoadFile( scanner, filename );
+	// Initialize the scanner by loading the file.  A load failure leaves the
+	// scanner position NULL, which is fatal in a native DLL but merely reads
+	// mapped VM memory in a QVM.
+	if ( !CG_weapGfx_LoadFile( scanner, filename ) ) {
+		return qfalse;
+	}
 
 	// Get the very first token initialized. If
 	// it is an end of file token, we will not parse

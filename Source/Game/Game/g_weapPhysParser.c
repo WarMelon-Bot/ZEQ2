@@ -2160,8 +2160,13 @@ qboolean G_weapPhys_ParseRemoteDefinition( char *filename, char *refname ) {
 	scanner = &parser.scanner;
 	token = &parser.token;	
 
-	// Initialize the scanner by loading the file
-	G_weapPhys_LoadFile( scanner, filename );
+	// Initialize the scanner by loading the file.  A missing or oversized
+	// script leaves scanner->pos NULL; native modules dereference real
+	// pointers, so continuing would segfault even though the QVM happens to
+	// survive reading VM address zero.
+	if ( !G_weapPhys_LoadFile( scanner, filename ) ) {
+		return qfalse;
+	}
 
 	// Get the very first token initialized. If
 	// it is an end of file token, we will not parse
@@ -2340,8 +2345,12 @@ qboolean G_weapPhys_Parse( char *filename, int clientNum ) {
 	weaponMask = G_FindUserWeaponMask( clientNum );
 	*weaponMask = 0;
 	
-	// Initialize the scanner by loading the file
-	G_weapPhys_LoadFile( scanner, filename );
+	// Initialize the scanner by loading the file.  Do not scan an unloaded
+	// file: the scanner position is NULL after a load failure, which crashes
+	// native DLL builds.
+	if ( !G_weapPhys_LoadFile( scanner, filename ) ) {
+		return qfalse;
+	}
 
 	// Get the very first token initialized. If
 	// it is an end of file token, we will not parse
