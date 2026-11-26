@@ -675,7 +675,9 @@ static void SVC_Status( netadr_t from ) {
 			if (statusLength + playerLength >= sizeof(status) ) {
 				break;		// can't hold any more
 			}
-			strcpy (status + statusLength, player);
+			// The length check above guarantees this fits; copy the
+			// terminator explicitly instead of using unbounded strcpy.
+			memcpy( status + statusLength, player, playerLength + 1 );
 			statusLength += playerLength;
 		}
 	}

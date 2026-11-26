@@ -36,9 +36,30 @@ existing game data and modules remain compatible.
 * Fixed incorrect destination sizes in the weapon-GFX parser and a
   string-copy helper that produced diagnostics with whole-program analysis.
 
+## Core hardening and efficiency
+
+* `Com_sprintf` now formats straight into the caller's buffer with a single
+  `vsnprintf` call. The old implementation reserved a 32 KB stack buffer for
+  every call, copied the result a second time, and aborted on output larger
+  than the scratch buffer. Truncation is still reported, and termination is
+  still guaranteed.
+* Unbounded `strcat`/`strcpy`/`sprintf` use was removed from the console
+  argument joiner, key bindings, server chat, configstring assembly, model
+  path construction, shader parsing and HUD formatting. Long console input or
+  malformed shader text can no longer overflow fixed buffers.
+* Unix `Sys_Milliseconds` now reads `CLOCK_MONOTONIC`, so wall-clock changes
+  cannot make engine timers jump. The legacy `gettimeofday` path remains only
+  as a fallback.
+* Network connection challenges and the filesystem checksum seed now use
+  `Com_RandomInt()`, which draws from the OS randomizer through
+  `Sys_RandomBytes` instead of deriving values from the shared `rand()` state.
+  Gameplay randomness is unchanged and remains deterministic for tests.
+
 ## Verification
 
 `./build.sh release`, `./build.sh native`, `./build.sh test` and
 `./build.sh warnings` all pass with no compiler diagnostics. The test suite
 covers allocator behavior, deterministic movement/melee, config caching,
-chat hardening, dedicated-server startup and OpenGL/Vulkan client smoke tests.
+chat hardening, string formatting and truncation, untrusted network parsing,
+dedicated-server startup and OpenGL/Vulkan client smoke tests. Run the
+formatter checks alone with `./build.sh string-test`.

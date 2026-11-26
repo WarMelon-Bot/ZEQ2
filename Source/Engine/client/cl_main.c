@@ -1328,7 +1328,7 @@ void CL_RequestMotd( void ) {
 	}
 	info[0] = 0;
 
-	Com_sprintf( cls.updateChallenge, sizeof( cls.updateChallenge ), "%i", ((rand() << 16) ^ rand()) ^ Com_Milliseconds());
+	Com_sprintf( cls.updateChallenge, sizeof( cls.updateChallenge ), "%i", Com_RandomInt() );
 
 	Info_SetValueForKey( info, "challenge", cls.updateChallenge );
 	Info_SetValueForKey( info, "renderer", cls.glconfig.renderer_string );
@@ -1471,7 +1471,7 @@ void CL_Connect_f( void ) {
 		cls.state = CA_CONNECTING;
 		
 		// Set a client challenge number that ideally is mirrored back by the server.
-		clc.challenge = ((rand() << 16) ^ rand()) ^ Com_Milliseconds();
+		clc.challenge = Com_RandomInt();
 	}
 
 	Key_SetCatcher( 0 );
@@ -3603,7 +3603,7 @@ void CL_GlobalServers_f( void ) {
 		return;	
 	}
 
-	sprintf(command, "sv_master%d", masterNum + 1);
+	Com_sprintf(command, sizeof(command), "sv_master%d", masterNum + 1);
 	masteraddress = Cvar_VariableString(command);
 	
 	if(!*masteraddress)
@@ -4096,7 +4096,7 @@ qboolean CL_CDKeyValidate( const char *key, const char *checksum ) {
 		}
 	}
 
-	sprintf(chs, "%02x", sum);
+	Com_sprintf(chs, sizeof(chs), "%02x", sum);
 	
 	if (checksum && !Q_stricmp(chs, checksum)) {
 		return qtrue;

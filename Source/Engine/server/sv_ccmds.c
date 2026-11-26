@@ -992,8 +992,9 @@ SV_ConSay_f
 ==================
 */
 static void SV_ConSay_f(void) {
-	char	*p;
+	const char	*p;
 	char	text[1024];
+	size_t	len;
 
 	// make sure server is running
 	if ( !com_sv_running->integer ) {
@@ -1005,15 +1006,21 @@ static void SV_ConSay_f(void) {
 		return;
 	}
 
-	strcpy (text, "console: ");
+	Q_strncpyz( text, "console: ", sizeof( text ) );
 	p = Cmd_Args();
 
 	if ( *p == '"' ) {
 		p++;
-		p[strlen(p)-1] = 0;
 	}
 
-	strcat(text, p);
+	Q_strncpyz( text + 9, p, sizeof( text ) - 9 );
+
+	// Remove a closing quote without modifying the command buffer.  The old
+	// code wrote through Cmd_Args(), which could corrupt a shared buffer.
+	len = strlen( text );
+	if ( len > 9 && text[ len - 1 ] == '"' ) {
+		text[ len - 1 ] = '\0';
+	}
 
 	SV_SendServerCommand(NULL, "chat \"%s\"", text);
 }

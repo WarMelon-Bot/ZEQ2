@@ -91,7 +91,7 @@ void SV_GetChallenge(netadr_t from)
 	}
 
 	// always generate a new challenge number, so the client cannot circumvent sv_maxping
-	challenge->challenge = ( (rand() << 16) ^ rand() ) ^ svs.time;
+	challenge->challenge = Com_RandomInt();
 	challenge->wasrefused = qfalse;
 
 	challenge->pingTime = svs.time;

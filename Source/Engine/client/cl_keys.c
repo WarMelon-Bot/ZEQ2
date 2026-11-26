@@ -1012,9 +1012,8 @@ Key_Bind_f
 */
 void Key_Bind_f (void)
 {
-	int			i, c, b;
-	char		cmd[1024];
-	
+	int			c, b;
+
 	c = Cmd_Argc();
 
 	if (c < 2)
@@ -1038,16 +1037,9 @@ void Key_Bind_f (void)
 		return;
 	}
 	
-// copy the rest of the command line
-	cmd[0] = 0;		// start out with a null string
-	for (i=2 ; i< c ; i++)
-	{
-		strcat (cmd, Cmd_Argv(i));
-		if (i != (c-1))
-			strcat (cmd, " ");
-	}
-
-	Key_SetBinding (b, cmd);
+// Cmd_ArgsFrom joins the remaining arguments into a bounded static buffer,
+// so a long bind command cannot overflow a local array.
+	Key_SetBinding (b, Cmd_ArgsFrom( 2 ));
 }
 
 /*
