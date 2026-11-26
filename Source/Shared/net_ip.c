@@ -46,9 +46,23 @@ typedef int socklen_t;
 typedef unsigned short sa_family_t;
 #	endif
 
+	// Winsock returns WSA error codes, not C errno values.  MinGW's headers
+	// may already define these names, so replace rather than redefine them.
+#	ifdef EAGAIN
+#		undef EAGAIN
+#	endif
 #	define EAGAIN					WSAEWOULDBLOCK
+#	ifdef EADDRNOTAVAIL
+#		undef EADDRNOTAVAIL
+#	endif
 #	define EADDRNOTAVAIL	WSAEADDRNOTAVAIL
+#	ifdef EAFNOSUPPORT
+#		undef EAFNOSUPPORT
+#	endif
 #	define EAFNOSUPPORT		WSAEAFNOSUPPORT
+#	ifdef ECONNRESET
+#		undef ECONNRESET
+#	endif
 #	define ECONNRESET			WSAECONNRESET
 #	define socketError		WSAGetLastError( )
 
