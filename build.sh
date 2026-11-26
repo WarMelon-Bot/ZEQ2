@@ -10,6 +10,7 @@
 #   ./build.sh memory-test-asan  build and run the allocator tests with ASan/UBSan
 #   ./build.sh pmove-test        run deterministic movement/melee/weapon regression tests
 #   ./build.sh connect-cache-test  run model config cache regression tests
+#   ./build.sh chat-message-test  run client chat/message hardening regression tests
 #   ./build.sh warnings        clean rebuild that fails on any compiler warning
 #   ./build.sh run [args...]   run the graphical client
 #   ./build.sh smp [args...]   run the multi-threaded renderer client
@@ -381,6 +382,32 @@ connect_cache_test() {
     "$binary"
 }
 
+chat_message_test() {
+    local cc="${CC:-cc}" binary="$TEST_DIR/chat-message-tests" probe="$TEST_DIR/chat-sanitizer-probe"
+    local cgame="$SOURCE_DIR/Game/CGame"
+    local sanitizers="" flags
+
+    log "Building and running client chat/message regression tests..."
+    mkdir -p "$TEST_DIR"
+
+    if printf 'int main(void) { return 0; }\n' | \
+        "$cc" -x c - -o "$probe" -fsanitize=address,undefined >/dev/null 2>&1; then
+        sanitizers="-fsanitize=address,undefined -fno-omit-frame-pointer"
+    else
+        warn "Compiler does not support ASan/UBSan; running chat tests without sanitizers."
+    fi
+    rm -f "$probe"
+
+    flags="-std=gnu17 -g -O1 -Wall -Wextra $sanitizers"
+    # shellcheck disable=SC2086
+    "$cc" $flags -I "$SOURCE_DIR/Shared" -I "$cgame" \
+        -o "$binary" "$SOURCE_DIR/Tests/test_chat_message.c" -lm
+
+    ASAN_OPTIONS=detect_leaks=1 \
+        UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
+        "$binary"
+}
+
 pmove_test() {
     local cc="${CC:-cc}" binary="$TEST_DIR/pmove-tests" output="$TEST_DIR/pmove-tests.out"
     local game="$SOURCE_DIR/Game/Game"
@@ -615,12 +642,13 @@ Commands:
   deps      Check/install build dependencies via apt
   build     Build release and debug targets
   release   Build only the optimized release target
-  test      Run allocator tests, then smoke-test server, OpenGL and Vulkan clients
+  test      Run unit/regression tests, then smoke-test server, OpenGL and Vulkan clients
   memory-limit-test  Verify a 64-bit server accepts multi-gigabyte allocator cvars
   memory-test  Build and run the zone/hunk allocator unit tests
   memory-test-asan  Build and run the allocator unit tests with ASan/UBSan
   pmove-test  Build and run deterministic movement/melee/weapon regression tests
   connect-cache-test  Run model config cache regression tests
+  chat-message-test  Run client chat/message hardening regression tests
   vulkan_smoke_test  Smoke-test the Vulkan client under Xvfb (lavapipe)
   warnings  Fresh release+debug rebuild; fail if any compiler warning appears
   win64     Cross-build Windows x64 server and game modules (needs mingw-w64)
@@ -662,6 +690,7 @@ while (($#)); do
                   "$1" == test || "$1" == memory-limit-test || \
                   "$1" == memory-test || "$1" == memory-test-asan || \
                   "$1" == pmove-test || "$1" == connect-cache-test || \
+                   "$1" == chat-message-test || \
                   "$1" == vulkan_smoke_test || "$1" == warnings || \
                   "$1" == win64 || "$1" == android || \
                   "$1" == run || "$1" == smp || "$1" == server || "$1" == clean ]]; then
@@ -682,6 +711,7 @@ case "$command_name" in
         memory_test_sanitized
         pmove_test
         connect_cache_test
+        chat_message_test
         smoke_test
         memory_limit_test
         client_smoke_test
@@ -701,6 +731,7 @@ case "$command_name" in
         memory_test_sanitized
         pmove_test
         connect_cache_test
+        chat_message_test
         smoke_test
         memory_limit_test
         client_smoke_test
@@ -711,6 +742,9 @@ case "$command_name" in
         ;;
     connect-cache-test)
         connect_cache_test
+        ;;
+    chat-message-test)
+        chat_message_test
         ;;
     memory-limit-test)
         memory_limit_test

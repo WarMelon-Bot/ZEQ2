@@ -24,6 +24,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 // active (after loading) gameplay
 
 #include "cg_local.h"
+#include "cg_chat.h"
 
 #ifdef MISSIONPACK
 #include "../UI/ui_shared.h"
@@ -370,8 +371,25 @@ Used for both the status bar and the scoreboard
 */
 void CG_DrawHead( float x, float y, float w, float h, int clientNum, vec3_t headAngles ) {
 	clientInfo_t	*ci;
+	int				tier;
+	int				numTiers;
+
+	if ( clientNum < 0 || clientNum >= MAX_CLIENTS ) {
+		return;
+	}
+
 	ci = &cgs.clientinfo[ clientNum ];
-	CG_DrawPic(qfalse, x, y, w, h, ci->tierConfig[ci->tierCurrent].icon);
+	if ( !ci->infoValid ) {
+		return;
+	}
+
+	numTiers = sizeof( ci->tierConfig ) / sizeof( ci->tierConfig[0] );
+	tier = ci->tierCurrent;
+	if ( tier < 0 || tier >= numTiers ) {
+		return;
+	}
+
+	CG_DrawPic(qfalse, x, y, w, h, ci->tierConfig[tier].icon);
 /*
 	if ( cg_draw3dIcons.integer ) {
 		cm = ci->headModel[ci->tierCurrent];
@@ -438,66 +456,91 @@ void CG_DrawTeamBackground( int x, int y, int w, int h, float alpha, int team )
 /*================
 CG_DRAWCHAT
 ================*/
-void strrep(char *str, char old, char new)  {
-    char *pos;
-    while (1)  {
-        pos = strchr(str, old);
-        if (pos == NULL)  {
-            break;
-        }
-        *pos = new;
-    }
-}
 void CG_CheckChat(void){
 	int index;
+	int count = sizeof( cgs.messages ) / sizeof( cgs.messages[0] );
 	vec3_t angles;
 	int yStart = cg.predictedPlayerState.lockedTarget ? 330 : 0;
 	int yOffset = cg.predictedPlayerState.lockedTarget ? -40 : 40;
-	if(cg.time < cgs.chatTimer){
-		for(index=0;index<3;++index){
-			if(cgs.messageClient[index] >= 0){
-				CG_DrawPic(qfalse,-15,-15+yStart+(yOffset*index),369,75,cgs.media.chatBackgroundShader);
-				CG_DrawHead(7,7+yStart+(yOffset*index),32,32,cgs.messageClient[index],angles);
-				CG_DrawSmallStringCustom(45,16+yStart+(yOffset*index),8,8,cgs.messages[index],1.0,4);
+
+	VectorClear( angles );
+
+	if ( cg.time < cgs.chatTimer ) {
+		for ( index = 0; index < count; ++index ) {
+			// A server can send a chat line from an unknown speaker. Never let
+			// an invalid client index reach CG_DrawHead().
+			if ( cgs.messageClient[index] < 0 || cgs.messageClient[index] >= MAX_CLIENTS ) {
+				continue;
 			}
+			if ( !cgs.messages[index][0] ) {
+				continue;
+			}
+
+			CG_DrawPic(qfalse,-15,-15+yStart+(yOffset*index),369,75,cgs.media.chatBackgroundShader);
+			CG_DrawHead(7,7+yStart+(yOffset*index),32,32,cgs.messageClient[index],angles);
+			CG_DrawSmallStringCustom(45,16+yStart+(yOffset*index),8,8,cgs.messages[index],1.0,4);
 		}
 	}
-	else{
-		for(index=0;index<3;++index){
+	else {
+		for ( index = 0; index < count; ++index ) {
 			cgs.messageClient[index] = -1;
-			strcpy(cgs.messages[index],"");
+			cgs.messageTimer[index] = 0;
+			cgs.messages[index][0] = '\0';
 		}
+		cgs.chatTimer = 0;
 	}
 }
-void CG_DrawChat(char *text){
-	int clientNum,safeIndex;
-	char cleaned[256];
-	char name[14];
-	char *safe;
-	char find = ':';
-	char find2[] = "^7";
-	char replace = ' ';
-	safe = text;
-	strrep(safe, find, replace);
-	strcpy(cleaned, text);
-	strrep(safe, *find2, replace);
-	cgs.chatTimer = cg.time + cg_chatTime.integer;
-	strcpy(name,COM_Parse(&safe));
-	for(safeIndex=0; safeIndex<3; ++safeIndex){if(!strcmp(cgs.messages[safeIndex],"")){break;}}
-	if(safeIndex>=2 && cgs.messageClient[2]>= 0){
-		safeIndex = 2;
-		cgs.messageClient[0] = cgs.messageClient[1];
-		cgs.messageClient[1] = cgs.messageClient[2];
-		strcpy(cgs.messages[0],cgs.messages[1]);
-		strcpy(cgs.messages[1],cgs.messages[2]);
+
+void CG_DrawChat( const char *text ) {
+	char name[64];
+	char clientName[64];
+	int clientNum;
+	int speaker = -1;
+	int safeIndex;
+	int chatTime;
+	int count = sizeof( cgs.messages ) / sizeof( cgs.messages[0] );
+
+	if ( !text ) {
+		return;
 	}
-	for(clientNum=0;clientNum<MAX_CLIENTS;++clientNum){
-		if(!strcmp(name,cgs.clientinfo[clientNum].name)){
-			cgs.messageClient[safeIndex] = clientNum;
+
+	// Parse a display-safe copy of the speaker without modifying the server
+	// string. Colour escapes are ignored on both sides so coloured names work.
+	CG_ChatSpeakerName( text, name, sizeof( name ) );
+	for ( clientNum = 0; clientNum < MAX_CLIENTS; ++clientNum ) {
+		if ( !cgs.clientinfo[clientNum].infoValid ) {
+			continue;
+		}
+		CG_ChatCleanName( cgs.clientinfo[clientNum].name, clientName, sizeof( clientName ) );
+		if ( name[0] && !strcmp( name, clientName ) ) {
+			speaker = clientNum;
 			break;
 		}
 	}
-	strcpy(cgs.messages[safeIndex],cleaned);
+
+	safeIndex = CG_ChatMessageSlot( &cgs.messages[0][0], sizeof( cgs.messages[0] ),
+			cgs.messageClient, count );
+	if ( safeIndex < 0 || safeIndex >= count ) {
+		return;
+	}
+
+	CG_ChatCopyText( cgs.messages[safeIndex], sizeof( cgs.messages[safeIndex] ), text );
+	cgs.messageClient[safeIndex] = speaker;
+	cgs.messageTimer[safeIndex] = cg.time;
+
+	chatTime = cg_chatTime.integer;
+	if ( chatTime < 0 ) {
+		chatTime = 0;
+	}
+	else if ( chatTime > 60000 ) {
+		chatTime = 60000;
+	}
+	if ( cg.time > INT_MAX - chatTime ) {
+		cgs.chatTimer = INT_MAX;
+	}
+	else {
+		cgs.chatTimer = cg.time + chatTime;
+	}
 }
 /*================
 CG_HUD

@@ -1279,7 +1279,7 @@ void CG_DrawSmallString( int x, int y, const char *s, float alpha );
 void CG_DrawSmallStringHalfHeight( int x, int y, const char *s, float alpha );
 void CG_DrawSmallStringColor( int x, int y, const char *s, vec4_t color );
 void CG_DrawSmallStringCustom( int x, int y, int w, int h, const char *s, float alpha, int spacing );
-void CG_DrawChat( char *text );
+void CG_DrawChat( const char *text );
 void CG_DrawMediumStringColor( int x, int y, const char *s, vec4_t color );
 
 int CG_DrawStrlen( const char *str );
