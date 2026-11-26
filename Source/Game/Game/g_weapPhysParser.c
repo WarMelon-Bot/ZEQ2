@@ -7,6 +7,24 @@
 
 static int							g_weapPhysRecursionDepth;
 static g_userWeaponParseBuffer_t	g_weapPhysBuffer;
+
+#define WEAPPHYS_CACHE_ENTRIES	32
+
+typedef struct {
+	char	filename[MAX_QPATH];
+	qboolean	valid;
+	qboolean	parsedOk;
+	int			weaponMask;
+	g_userWeapon_t	weapons[ALTSPAWN_OFFSET + MAX_PLAYERWEAPONS];
+} weapPhysCacheEntry_t;
+
+static weapPhysCacheEntry_t	weapPhysCache[WEAPPHYS_CACHE_ENTRIES];
+static int					weapPhysCacheNext;
+
+void G_ClearWeapPhysCache( void ) {
+	memset( weapPhysCache, 0, sizeof( weapPhysCache ) );
+	weapPhysCacheNext = 0;
+}
 	// FIXME: Can this be a local variable instead, or would it give us
 	//		  > 32k locals errors in the VM-bytecode compiler?
 
@@ -2327,7 +2345,7 @@ G_weapPhys_Parse
 Main parsing function for a scriptfile.
 This is the parser's 'entrypoint',
 */
-qboolean G_weapPhys_Parse( char *filename, int clientNum ) {
+static qboolean G_weapPhys_ParseUncached( char *filename, int clientNum ) {
 	g_weapPhysParser_t		parser;
 	g_weapPhysScanner_t		*scanner;
 	g_weapPhysToken_t		*token;
@@ -2440,4 +2458,51 @@ qboolean G_weapPhys_Parse( char *filename, int clientNum ) {
 	}
 
 	return qtrue;
+}
+
+/*
+==================
+G_weapPhys_Parse
+==================
+Weapon physics files are static game data.  Parsing them again on every
+userinfo change hitch-spiked connected players, so cache the parsed per-client
+weapon table by filename for the lifetime of the map.
+*/
+qboolean G_weapPhys_Parse( char *filename, int clientNum ) {
+	int i;
+	weapPhysCacheEntry_t *entry = NULL;
+	int *weaponMask;
+	qboolean parsedOk;
+
+	weaponMask = G_FindUserWeaponMask( clientNum );
+
+	for ( i = 0; i < WEAPPHYS_CACHE_ENTRIES; i++ ) {
+		if ( weapPhysCache[i].valid && !Q_stricmp( weapPhysCache[i].filename, filename ) ) {
+			entry = &weapPhysCache[i];
+			break;
+		}
+	}
+
+	if ( !entry ) {
+		entry = &weapPhysCache[weapPhysCacheNext];
+		weapPhysCacheNext = ( weapPhysCacheNext + 1 ) % WEAPPHYS_CACHE_ENTRIES;
+		memset( entry, 0, sizeof( *entry ) );
+		Q_strncpyz( entry->filename, filename, sizeof( entry->filename ) );
+
+		parsedOk = G_weapPhys_ParseUncached( filename, clientNum );
+		entry->parsedOk = parsedOk;
+		entry->weaponMask = *weaponMask;
+		for ( i = 0; i < ALTSPAWN_OFFSET + MAX_PLAYERWEAPONS; i++ ) {
+			g_userWeapon_t *src = G_FindUserWeaponData( clientNum, i + 1 );
+			memcpy( &entry->weapons[i], src, sizeof( entry->weapons[i] ) );
+		}
+		entry->valid = qtrue;
+	}
+
+	*weaponMask = entry->weaponMask;
+	for ( i = 0; i < ALTSPAWN_OFFSET + MAX_PLAYERWEAPONS; i++ ) {
+		g_userWeapon_t *dest = G_FindUserWeaponData( clientNum, i + 1 );
+		memcpy( dest, &entry->weapons[i], sizeof( *dest ) );
+	}
+	return entry->parsedOk;
 }

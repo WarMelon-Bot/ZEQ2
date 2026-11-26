@@ -1021,6 +1021,7 @@ CFGEOF
     for pattern in \
         '^ERROR:' \
         'Com_Error' \
+        'Hitch warning' \
         'DEFAULT_MODEL .* failed to register' \
         'Unknown command' \
         'client text ignored' \
