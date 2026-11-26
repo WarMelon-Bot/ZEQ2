@@ -7,6 +7,10 @@ on:
         description: 'Task for the agent'
         required: true
         default: 'Inspect the repo, build a CLI/build script, compile, and fix any errors.'
+      model:
+        description: 'Provider/Model (e.g. openrouter/openrouter/free, cerebras/qwen-3-coder-480b, groq/llama-3.3-70b-versatile)'
+        required: false
+        default: 'openrouter/openrouter/free'
   issues:
     types: [opened]
   issue_comment:
@@ -39,15 +43,20 @@ jobs:
       - name: Configure Git Identity
         run: |
           git config --global user.name "github-actions[bot]"
-          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config --global user.email "41898282+github-actions[bot]@://github.com"
 
       - name: Run OpenCode Agent
         env:
           GITHUB_TOKEN: ${{ secrets.AGENT_PAT }}
           GH_TOKEN: ${{ secrets.AGENT_PAT }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
           OPENCODE_PERMISSION: '{"*": "allow", "websearch": "deny", "question": "deny"}'
         run: |
-          opencode run -m opencode/big-pickle "Read the repository files and follow these instructions.
+          MODEL="${{ github.event.inputs.model || 'openrouter/openrouter/free' }}"
+          opencode run -m "$MODEL" "Read the repository files and follow these instructions.
           Original Issue: ${{ github.event.issue.body }}
           Latest Comment / Manual Task: ${{ github.event.inputs.task || github.event.comment.body }}
           You have full repository permissions, including creating or editing .github/workflows files, pushing branches, and creating or merging Pull Requests. Do not use web search or ask questions. Build any CLI or build scripts needed, compile and run the source code, inspect all compiler or runtime errors, fix them, and verify the build succeeds cleanly. Finally, create a new git branch, commit your changes, push the branch, and open a Pull Request using the gh CLI."
