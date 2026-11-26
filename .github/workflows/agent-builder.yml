@@ -12,10 +12,7 @@ on:
   issue_comment:
     types: [created]
 
-permissions:
-  contents: write
-  issues: write
-  pull-requests: write
+permissions: write-all
 
 jobs:
   run-agent:
@@ -27,6 +24,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
+        with:
+          token: ${{ secrets.AGENT_PAT }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v5
@@ -40,22 +39,24 @@ jobs:
       - name: Configure Git Identity
         run: |
           git config --global user.name "github-actions[bot]"
-          git config --global user.email "41898282+github-actions[bot]@://github.com"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
       - name: Run OpenCode Agent
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.AGENT_PAT }}
+          GH_TOKEN: ${{ secrets.AGENT_PAT }}
           OPENCODE_PERMISSION: '{"*": "allow", "websearch": "deny", "question": "deny"}'
         run: |
           opencode run -m opencode/big-pickle "Read the repository files and follow these instructions.
           Original Issue: ${{ github.event.issue.body }}
           Latest Comment / Manual Task: ${{ github.event.inputs.task || github.event.comment.body }}
-          Do not use web search or ask questions. Build any CLI or build scripts needed, compile and run the source code, inspect all compiler or runtime errors, fix them, and verify the build succeeds cleanly. Finally, create a new git branch, commit your changes, push the branch, and open a Pull Request using the gh CLI."
+          You have full repository permissions, including creating or editing .github/workflows files, pushing branches, and creating or merging Pull Requests. Do not use web search or ask questions. Build any CLI or build scripts needed, compile and run the source code, inspect all compiler or runtime errors, fix them, and verify the build succeeds cleanly. Finally, create a new git branch, commit your changes, push the branch, and open a Pull Request using the gh CLI."
 
       - name: Rescue Uncommitted Changes into PR (Fallback)
         if: always()
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.AGENT_PAT }}
+          GH_TOKEN: ${{ secrets.AGENT_PAT }}
         run: |
           if [ -n "$(git status --porcelain)" ]; then
             BRANCH="agent-fix-$(date +%s)"
