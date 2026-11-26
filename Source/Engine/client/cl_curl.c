@@ -208,32 +208,71 @@ void CL_cURL_Cleanup(void)
 	}
 }
 
-static int CL_cURL_CallbackProgress( void *dummy, double dltotal, double dlnow,
-	double ultotal, double ulnow )
+static int CL_cURL_SetProgress( intptr_t total, intptr_t now )
 {
-	clc.downloadSize = (int)dltotal;
+	clc.downloadSize = total;
 	Cvar_SetValue( "cl_downloadSize", clc.downloadSize );
-	clc.downloadCount = (int)dlnow;
+	clc.downloadCount = now;
 	Cvar_SetValue( "cl_downloadCount", clc.downloadCount );
 	return 0;
 }
 
+#if LIBCURL_VERSION_NUM < 0x072000
+static intptr_t CL_cURL_ClampDouble( double value )
+{
+	if ( value >= (double)INTPTR_MAX ) {
+		return INTPTR_MAX;
+	}
+	if ( value <= (double)INTPTR_MIN ) {
+		return INTPTR_MIN;
+	}
+	return (intptr_t)value;
+}
+
+static int CL_cURL_CallbackProgress( void *dummy, double dltotal, double dlnow,
+	double ultotal, double ulnow )
+{
+	return CL_cURL_SetProgress( CL_cURL_ClampDouble( dltotal ),
+		CL_cURL_ClampDouble( dlnow ) );
+}
+#endif
+
 #if LIBCURL_VERSION_NUM >= 0x072000
-/* CURLOPT_XFERINFOFUNCTION (libcurl >= 7.32.0) passes 64-bit offsets instead
- * of doubles, so adapt it to the callback above. */
+/* CURLOPT_XFERINFOFUNCTION (libcurl >= 7.32.0) passes 64-bit offsets directly,
+ * so keep their precision instead of rounding through double. */
+static intptr_t CL_cURL_ClampOffset( curl_off_t value )
+{
+	if ( value > (curl_off_t)INTPTR_MAX ) {
+		return INTPTR_MAX;
+	}
+	if ( value < (curl_off_t)INTPTR_MIN ) {
+		return INTPTR_MIN;
+	}
+	return (intptr_t)value;
+}
+
 static int CL_cURL_CallbackXferInfo( void *dummy, curl_off_t dltotal,
 	curl_off_t dlnow, curl_off_t ultotal, curl_off_t ulnow )
 {
-	return CL_cURL_CallbackProgress( dummy, (double)dltotal, (double)dlnow,
-		(double)ultotal, (double)ulnow );
+	return CL_cURL_SetProgress( CL_cURL_ClampOffset( dltotal ),
+		CL_cURL_ClampOffset( dlnow ) );
 }
 #endif
 
 static size_t CL_cURL_CallbackWrite(void *buffer, size_t size, size_t nmemb,
 	void *stream)
 {
-	FS_Write( buffer, size*nmemb, ((fileHandle_t*)stream)[0] );
-	return size*nmemb;
+	size_t bytes;
+
+	if ( size && nmemb > SIZE_MAX / size ) {
+		return 0;
+	}
+	bytes = size * nmemb;
+	if ( bytes > INT_MAX ) {
+		return 0;
+	}
+	FS_Write( buffer, (int)bytes, ((fileHandle_t*)stream)[0] );
+	return bytes;
 }
 
 void CL_cURL_BeginDownload( const char *localName, const char *remoteURL )

@@ -642,10 +642,10 @@ void	FS_FreeFile( void *buffer );
 void	FS_WriteFile( const char *qpath, const void *buffer, int size );
 // writes a complete file, creating any subdirectories needed
 
-int		FS_filelength( fileHandle_t f );
+intptr_t	FS_filelength( fileHandle_t f );
 // doesn't work for files that are opened from a pack file
 
-int		FS_FTell( fileHandle_t f );
+intptr_t	FS_FTell( fileHandle_t f );
 // where are we?
 
 void	FS_Flush( fileHandle_t f );

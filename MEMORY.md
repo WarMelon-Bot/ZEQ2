@@ -61,6 +61,15 @@ ceilings are lifted. Individual allocation APIs remain `int`-based for source
 compatibility with game modules, so a single request is still limited to
 `INT_MAX` bytes.
 
+Filesystem `FS_filelength` and `FS_FTell` now use `intptr_t` and the platform's
+large-file tell API (`_ftelli64` on Win64, `ftello` on LP64 Unix). The older
+`FS_ReadFile`/`FS_FOpenFileRead` entry points still return `int` for game-module
+compatibility, so oversized files are rejected with a clear message instead of
+wrapping. PK3 loading likewise rejects ZIP64 or larger-than-2-GiB members
+rather than silently truncating their offsets. OGG stream positions and HTTP
+download counters are pointer-width, and the x86-64 JIT's signed-immediate
+checks no longer rely on implementation-defined `u64` to `llabs()` conversions.
+
 The cross-platform build matrix is exercised by:
 
 ```sh
