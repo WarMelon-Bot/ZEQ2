@@ -45,7 +45,11 @@ JOBS=8 ./build.sh build
 ./build.sh test
 ```
 
-This starts the dedicated server, then starts `ZEQ2-smp` under Xvfb, enables
-`r_smp`, renders a few frames and quits.  The test fails if the render thread
-does not start or is not joined cleanly during shutdown.  The headless
-render-thread test is skipped when `xvfb-run` is not installed.
+This starts the dedicated server, then runs three headless client checks under
+Xvfb: the default `ZEQ2` client with `r_smp` at its default value (`1`), the
+same client with `r_smp 0` to verify the single-threaded fallback, and the
+`ZEQ2-smp` compatibility symlink with `r_smp 1`.  Each client renders a few
+frames and quits.  The threaded checks fail if the render thread does not
+start or is not joined cleanly during shutdown, and the `r_smp 0` check fails
+if a thread is started anyway.  The headless client tests are skipped when
+`xvfb-run` is not installed.

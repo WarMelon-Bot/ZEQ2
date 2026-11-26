@@ -101,6 +101,7 @@ typedef struct
 	int multisample;
 	int anisotropy;
 	int driver;
+	int renderer;
 	qboolean extensions;
 } InitialVideoOptions_s;
 
@@ -110,22 +111,22 @@ static systemsettings_t		s_systemsettings;
 static InitialVideoOptions_s s_ivo_templates[] =
 {
 	{
-		6, qtrue, 3, 0, 2, 2, 2, 1, 0, qtrue
+		6, qtrue, 3, 0, 2, 2, 2, 1, 0, 0, qtrue
 	},
 	{
-		4, qtrue, 2, 0, 2, 2, 1, 1, 0, qtrue	// JDC: this was tq 3
+		4, qtrue, 2, 0, 2, 2, 1, 1, 0, 0, qtrue	// JDC: this was tq 3
 	},
 	{
-		3, qtrue, 2, 0, 0, 0, 1, 0, 0, qtrue
+		3, qtrue, 2, 0, 0, 0, 1, 0, 0, 0, qtrue
 	},
 	{
-		2, qtrue, 1, 0, 1, 0, 0, 0, 0, qtrue
+		2, qtrue, 1, 0, 1, 0, 0, 0, 0, 0, qtrue
 	},
 	{
-		2, qtrue, 1, 1, 1, 0, 0, 0, 0, qtrue
+		2, qtrue, 1, 1, 1, 0, 0, 0, 0, 0, qtrue
 	},
 	{
-		3, qtrue, 1, 0, 0, 0, 1, 0, 0, qtrue
+		3, qtrue, 1, 0, 0, 0, 1, 0, 0, 0, qtrue
 	}
 };
 
@@ -289,6 +290,7 @@ static void SystemSettings_GetInitialVideo( void )
 {
 	s_ivo.colordepth  = s_systemsettings.colordepth.curvalue;
 	s_ivo.driver      = s_systemsettings.driver.curvalue;
+	s_ivo.renderer    = s_systemsettings.renderer.curvalue;
 	s_ivo.mode        = s_systemsettings.mode.curvalue;
 	s_ivo.fullscreen  = s_systemsettings.fs.curvalue;
 	s_ivo.extensions  = s_systemsettings.allow_extensions.curvalue;
@@ -434,6 +436,10 @@ static void SystemSettings_UpdateMenuItems( void )
 		s_systemsettings.apply.generic.flags &= ~(QMF_HIDDEN|QMF_INACTIVE);
 	}
 	if ( s_ivo.driver != s_systemsettings.driver.curvalue )
+	{
+		s_systemsettings.apply.generic.flags &= ~(QMF_HIDDEN|QMF_INACTIVE);
+	}
+	if ( s_ivo.renderer != s_systemsettings.renderer.curvalue )
 	{
 		s_systemsettings.apply.generic.flags &= ~(QMF_HIDDEN|QMF_INACTIVE);
 	}

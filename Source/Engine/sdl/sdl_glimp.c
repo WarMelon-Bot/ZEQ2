@@ -228,6 +228,11 @@ void GLimp_Shutdown( void )
 	{
 		Vkqgl_Shutdown();
 		IN_Shutdown();
+#if defined( SMP ) && defined( SDL_VIDEO_DRIVER_X11 )
+		smpDisplay = NULL;
+		smpWindow = 0;
+#endif
+		opengl_context = NULL;
 		Com_Memset( &glConfig, 0, sizeof( glConfig ) );
 		Com_Memset( &glState, 0, sizeof( glState ) );
 		return;
@@ -238,6 +243,12 @@ void GLimp_Shutdown( void )
 
 	SDL_QuitSubSystem( SDL_INIT_VIDEO );
 	screen = NULL;
+#if defined( SMP ) && defined( SDL_VIDEO_DRIVER_X11 )
+	/* The X window and Display are gone with the video subsystem. */
+	smpDisplay = NULL;
+	smpWindow = 0;
+#endif
+	opengl_context = NULL;
 
 	Com_Memset( &glConfig, 0, sizeof( glConfig ) );
 	Com_Memset( &glState, 0, sizeof( glState ) );
@@ -940,6 +951,9 @@ void GLimp_Init( void )
 					ri.Cvar_Set( "r_sdlDriver", driverName );
 				}
 				ri.Printf( PRINT_ALL, "GL_RENDERER: %s\n", qglGetString( GL_RENDERER ) );
+
+				// This depends on SDL_INIT_VIDEO, hence having it here.
+				IN_Init( );
 				return;
 			}
 			QGL_InitGLDispatch();
@@ -1018,6 +1032,52 @@ success:
 	IN_Init( );
 }
 
+/*
+===============
+GLimp_CheckFullscreen
+
+Fullscreen changes touch SDL input state and the command buffer, so they must
+run on the main thread.  The render thread used to do this from EndFrame().
+===============
+*/
+void GLimp_CheckFullscreen( void )
+{
+	qboolean needToToggle = qtrue;
+	qboolean sdlToggled = qfalse;
+	SDL_Surface *s;
+
+	if ( !r_fullscreen->modified ) {
+		return;
+	}
+
+	s = SDL_GetVideoSurface( );
+	if ( s )
+	{
+		if ( r_fullscreen->integer && Cvar_VariableIntegerValue( "in_nograb" ) )
+		{
+			ri.Printf( PRINT_ALL, "Fullscreen not allowed with in_nograb 1\n" );
+			ri.Cvar_Set( "r_fullscreen", "0" );
+			r_fullscreen->modified = qfalse;
+			return;
+		}
+
+		needToToggle = !!r_fullscreen->integer != !!( s->flags & SDL_FULLSCREEN );
+		if ( needToToggle ) {
+			sdlToggled = SDL_WM_ToggleFullScreen( s );
+		}
+	}
+
+	if ( needToToggle )
+	{
+		/* SDL_WM_ToggleFullScreen didn't work, so do it the slow way. */
+		if ( !sdlToggled ) {
+			Cbuf_AddText( "vid_restart" );
+		}
+		IN_Restart( );
+	}
+
+	r_fullscreen->modified = qfalse;
+}
 
 /*
 ===============
@@ -1042,43 +1102,6 @@ void GLimp_EndFrame( void )
 		SDL_GL_SwapBuffers();
 	}
 
-	if( r_fullscreen->modified )
-	{
-		qboolean    fullscreen;
-		qboolean    needToToggle = qtrue;
-		qboolean    sdlToggled = qfalse;
-		SDL_Surface *s = SDL_GetVideoSurface( );
-
-		if( s )
-		{
-			// Find out the current state
-			fullscreen = !!( s->flags & SDL_FULLSCREEN );
-				
-			if( r_fullscreen->integer && Cvar_VariableIntegerValue( "in_nograb" ) )
-			{
-				ri.Printf( PRINT_ALL, "Fullscreen not allowed with in_nograb 1\n");
-				ri.Cvar_Set( "r_fullscreen", "0" );
-				r_fullscreen->modified = qfalse;
-			}
-
-			// Is the state we want different from the current state?
-			needToToggle = !!r_fullscreen->integer != fullscreen;
-
-			if( needToToggle )
-				sdlToggled = SDL_WM_ToggleFullScreen( s );
-		}
-
-		if( needToToggle )
-		{
-			// SDL_WM_ToggleFullScreen didn't work, so do it the slow way
-			if( !sdlToggled )
-				Cbuf_AddText( "vid_restart" );
-
-			IN_Restart( );
-		}
-
-		r_fullscreen->modified = qfalse;
-	}
 }
 
 
@@ -1106,6 +1129,36 @@ static void (*glimpRenderThread)( void ) = NULL;
 static SDL_Thread *renderThread = NULL;
 static volatile void *smpData = NULL;
 static volatile qboolean smpDataReady = qfalse;
+static qboolean glimpRenderThreadActive = qfalse;
+
+/*
+ * The "active" flag is only used for r_showSmp statistics, but it is written
+ * by the render thread and read by the front end.  Guard it with smpMutex so
+ * the diagnostic output is not itself a data race.
+ */
+qboolean GLimp_RendererActive( void )
+{
+	qboolean active;
+
+	if ( smpMutex == NULL ) {
+		return qfalse;
+	}
+	SDL_LockMutex( smpMutex );
+	active = glimpRenderThreadActive;
+	SDL_UnlockMutex( smpMutex );
+	return active;
+}
+
+void GLimp_SetRendererActive( qboolean active )
+{
+	if ( smpMutex == NULL ) {
+		glimpRenderThreadActive = active;
+		return;
+	}
+	SDL_LockMutex( smpMutex );
+	glimpRenderThreadActive = active;
+	SDL_UnlockMutex( smpMutex );
+}
 
 /*
 ===============
@@ -1145,8 +1198,11 @@ void GLimp_ShutdownRenderThread(void)
 	glimpRenderThread = NULL;
 	smpData = NULL;
 	smpDataReady = qfalse;
+	glimpRenderThreadActive = qfalse;
 
-	/* The main thread owns the GL context again for texture teardown. */
+	/* The main thread owns the GL context again for texture teardown.  Refresh
+	 * the cached X11 drawable in case a fullscreen change recreated it. */
+	GLimp_GetCurrentContext();
 	GLimp_SetCurrentContext(opengl_context);
 }
 
@@ -1178,6 +1234,15 @@ GLimp_SpawnRenderThread
 qboolean GLimp_SpawnRenderThread( void (*function)( void ) )
 {
 	static qboolean reported = qfalse;
+
+	/* Clean up any thread left by an earlier video init before the early
+	 * returns below; otherwise it would stay blocked on a condition variable
+	 * whose mutex is destroyed later. */
+	if ( renderThread != NULL ) {
+		Com_Printf( "Already a render thread? Trying to clean it up...\n" );
+		GLimp_WakeRenderer( NULL );
+		GLimp_ShutdownRenderThread();
+	}
 
 #ifdef HAVE_VULKAN
 	/* Vulkan command buffers are recorded by the front end; the old GLX
@@ -1212,13 +1277,6 @@ qboolean GLimp_SpawnRenderThread( void (*function)( void ) )
 	}
 #endif
 
-	if (renderThread != NULL)  /* hopefully just a zombie at this point... */
-	{
-		Com_Printf("Already a render thread? Trying to clean it up...\n");
-		GLimp_WakeRenderer(NULL);
-		GLimp_ShutdownRenderThread();
-	}
-
 	smpMutex = SDL_CreateMutex();
 	if (smpMutex == NULL)
 	{
@@ -1251,14 +1309,11 @@ qboolean GLimp_SpawnRenderThread( void (*function)( void ) )
 		GLimp_ShutdownRenderThread();
 		return qfalse;
 	}
-	else
-	{
-		/* The context belongs to the render thread from now on.  Releasing it
-		 * here also guarantees GLimp_RendererSleep() starts out with no
-		 * current context in the new thread. */
-		GLimp_SetCurrentContext(NULL);
-	}
 
+	/* The main thread keeps the GL context until the first
+	 * GLimp_WakeRenderer() hand-off.  R_Init() still creates GL objects after
+	 * the thread is spawned; dropping the context here would leave no thread
+	 * with a current context during that work. */
 	return qtrue;
 }
 
@@ -1300,6 +1355,10 @@ GLimp_FrontEndSleep
 */
 void GLimp_FrontEndSleep( void )
 {
+	if ( smpMutex == NULL ) {
+		return;
+	}
+
 	SDL_LockMutex(smpMutex);
 	{
 		while ( smpData )
@@ -1307,6 +1366,9 @@ void GLimp_FrontEndSleep( void )
 	}
 	SDL_UnlockMutex(smpMutex);
 
+	/* The main thread may have recreated the X window (fullscreen toggle),
+	 * so refresh the cached drawable before taking the context back. */
+	GLimp_GetCurrentContext();
 	GLimp_SetCurrentContext(opengl_context);
 }
 
@@ -1317,11 +1379,23 @@ GLimp_WakeRenderer
 */
 void GLimp_WakeRenderer( void *data )
 {
+	if ( smpMutex == NULL ) {
+		return;
+	}
+
+	/* Refresh the X11 drawable on the main thread, then hand the context to
+	 * the render thread.  The window may have been recreated since the last
+	 * hand-off. */
+	GLimp_GetCurrentContext();
 	GLimp_SetCurrentContext(NULL);
 
 	SDL_LockMutex(smpMutex);
 	{
-		assert( smpData == NULL );
+		/* A shutdown or restart may arrive while a frame is still in flight.
+		 * Wait for the back end to finish instead of asserting here. */
+		while ( smpData != NULL ) {
+			SDL_CondWait( renderCompletedEvent, smpMutex );
+		}
 		smpData = data;
 		smpDataReady = qtrue;
 
@@ -1358,6 +1432,15 @@ void GLimp_FrontEndSleep( void )
 }
 
 void GLimp_WakeRenderer( void *data )
+{
+}
+
+qboolean GLimp_RendererActive( void )
+{
+	return qfalse;
+}
+
+void GLimp_SetRendererActive( qboolean active )
 {
 }
 

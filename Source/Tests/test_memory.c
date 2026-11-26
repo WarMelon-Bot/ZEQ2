@@ -99,10 +99,16 @@ static void TestZoneBasic( void ) {
 	if ( !a || !b || !c ) {
 		return;
 	}
-	CHECK( a[0] == 0 && b[999] == 0 && c[32] == 0, "Z_Malloc did not zero memory" );
-	CHECK( ( (uintptr_t)a % 16 ) == 0 && ( (uintptr_t)b % 16 ) == 0,
-		"zone allocations are not aligned (a=%p b=%p)", (void *)a, (void *)b );
-	CHECK( b > a && c > b, "zone allocations overlap" );
+	CHECK( a[0] == 0 && b[999] == 0, "Z_Malloc did not zero memory" );
+	CHECK( ( (uintptr_t)a % 16 ) == 0 && ( (uintptr_t)b % 16 ) == 0 && ( (uintptr_t)c % 16 ) == 0,
+		"zone allocations are not aligned (a=%p b=%p c=%p)", (void *)a, (void *)b, (void *)c );
+
+	// S_Malloc uses Z_TagMalloc, which deliberately does not zero its block.
+	Com_Memset( c, 0xa5, 33 );
+	CHECK( c[0] == 0xa5 && c[32] == 0xa5, "S_Malloc unexpectedly changed its block" );
+	// a and b share the main zone, so only they may be ordered portably.  c
+	// comes from the small zone; just make sure it is a distinct allocation.
+	CHECK( b > a && c != a && c != b, "zone allocations overlap" );
 
 	after = Z_AvailableMemory();
 	CHECK( after < before, "available zone memory did not decrease (%i -> %i)", before, after );
@@ -132,6 +138,7 @@ static void TestZoneStress( void ) {
 	byte *p;
 	clock_t start;
 	unsigned allocations = 0;
+	int failuresBefore = failures;
 
 	memset( ptrs, 0, sizeof( ptrs ) );
 	memset( sizes, 0, sizeof( sizes ) );
@@ -144,7 +151,7 @@ static void TestZoneStress( void ) {
 			for ( size = 0; size < sizes[slot]; size++ ) {
 				CHECK( p[size] == (byte)( patterns[slot] + size ),
 					"zone block %d corrupted at offset %u", slot, (unsigned)size );
-				if ( failures ) {
+				if ( failures != failuresBefore ) {
 					return;
 				}
 			}
@@ -219,6 +226,13 @@ static void TestHunk( void ) {
 	before = Hunk_MemoryRemaining();
 	CHECK( before > 1024 * 1024, "unexpected hunk size: %i", before );
 
+	// Give the high bank a temp high-water mark first.  Without this, h_high
+	// is served from the low bank because both banks start with no waste and
+	// Hunk_SwapBanks only swaps when the temp side has more unused history.
+	temp1 = Hunk_AllocateTempMemory( 256 * 1024 );
+	CHECK( temp1 != NULL, "could not prime the high hunk bank" );
+	Hunk_ClearTempMemory();
+
 	low = Hunk_Alloc( 1024, h_low );
 	high = Hunk_Alloc( 2048, h_high );
 	CHECK( low != NULL && high != NULL, "hunk allocation returned NULL" );
@@ -228,7 +242,8 @@ static void TestHunk( void ) {
 	CHECK( ( (uintptr_t)low % TEST_HUNK_ALIGN ) == 0 && ( (uintptr_t)high % TEST_HUNK_ALIGN ) == 0,
 		"hunk allocations are not cache-line aligned (%p, %p)", (void *)low, (void *)high );
 	CHECK( low[0] == 0 && high[2047] == 0, "Hunk_Alloc did not zero memory" );
-	CHECK( high > low && (size_t)( high - low ) >= 1024, "hunk banks overlap" );
+	CHECK( high > low && (size_t)( high - low ) > 1024 * 1024,
+		"h_high was not served from the high bank (%p, %p)", (void *)low, (void *)high );
 
 	after = Hunk_MemoryRemaining();
 	CHECK( after < before, "hunk remaining did not decrease (%i -> %i)", before, after );
@@ -257,6 +272,10 @@ static void TestHunk( void ) {
 	remaining = Hunk_MemoryRemaining();
 	Hunk_ClearToMark();
 	CHECK( Hunk_MemoryRemaining() == remaining, "Hunk_ClearToMark changed remaining memory" );
+
+	// Touching all allocated hunk pages must not fault or corrupt the heap.
+	Com_TouchMemory();
+	Z_CheckHeap();
 }
 
 int main( int argc, char **argv ) {

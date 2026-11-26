@@ -23,8 +23,6 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 
 volatile renderCommandList_t	*renderCommandList;
 
-volatile qboolean	renderThreadActive;
-
 
 /*
 =====================
@@ -129,7 +127,7 @@ void R_IssueRenderCommands( qboolean runPerformanceCounters ) {
 
 	if ( glConfig.smpActive ) {
 		// if the render thread is not idle, wait for it
-		if ( renderThreadActive ) {
+		if ( GLimp_RendererActive() ) {
 			c_blockedOnRender++;
 			if ( r_showSmp->integer ) {
 				ri.Printf( PRINT_ALL, "R" );
@@ -343,6 +341,11 @@ void RE_BeginFrame( stereoFrame_t stereoFrame ) {
 	if ( !tr.registered ) {
 		return;
 	}
+
+	/* Fullscreen changes must happen on the main thread, not in the render
+	 * thread's buffer-swap path. */
+	GLimp_CheckFullscreen();
+
 	glState.finishCalled = qfalse;
 
 	tr.frameCount++;
@@ -512,10 +515,22 @@ Returns the number of msec spent in the back end
 */
 void RE_EndFrame( int *frontEndMsec, int *backEndMsec ) {
 	swapBuffersCommand_t	*cmd;
+	touchOverlayCommand_t	*touchCmd;
 
 	if ( !tr.registered ) {
 		return;
 	}
+
+	/* Copy mutable touch/input state into the command buffer while we are
+	 * still on the main thread. */
+	if ( Touch_OverlayActive() ) {
+		touchCmd = R_GetCommandBuffer( sizeof( *touchCmd ) );
+		if ( touchCmd ) {
+			touchCmd->commandId = RC_TOUCH_OVERLAY;
+			Touch_SnapshotOverlay( &touchCmd->overlay );
+		}
+	}
+
 	cmd = R_GetCommandBuffer( sizeof( *cmd ) );
 	if ( !cmd ) {
 		return;

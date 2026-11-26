@@ -20,16 +20,18 @@ OpenGL-only renderer.
 
 ## Selecting the backend
 
-The latched cvar `r_renderer` chooses the backend:
+The latched cvar `r_renderer` chooses the backend.  Set it on the command line
+before the renderer starts:
 
 ```sh
-+set r_renderer vulkan   # requires a vid_restart to take effect
++set r_renderer vulkan
 +set r_renderer opengl
 ```
 
 It is also exposed as **Renderer: OpenGL / Vulkan** in the in-game graphics
-settings menu; applying the menu settings executes `vid_restart`.  If Vulkan
-cannot be initialized, the engine prints a message and falls back to OpenGL.
+settings menu; because the cvar is latched, applying a change from the menu
+executes `vid_restart`.  If Vulkan cannot be initialized, the engine prints a
+message and falls back to OpenGL.
 
 The Vulkan path currently creates an Xlib surface, so an X11 display is
 required.  Headless smoke tests use Xvfb with lavapipe:
@@ -50,5 +52,13 @@ required.  Headless smoke tests use Xvfb with lavapipe:
   attribute/varying locations, std140 uniform block, sampler bindings) and
   compiled to SPIR-V with shaderc.  Both built-in fallback shaders and GLSL
   programs loaded from pk3 files go through this translator.
-* The renderer's fixed-function calls that Vulkan does not have are ignored
-  or emulated where they affect the visible result.
+* The GL compatibility layer covers the renderer's state calls and immediate
+  submission path, but it is not a complete OpenGL implementation.  Legacy
+  fixed-function features without a direct Vulkan equivalent may be partially
+  emulated or ignored; shaders are still authoritative for final color and
+  alpha.
+* Stencil is not implemented by the backend: it reports 0 stencil bits and
+  `GL_STENCIL_BITS` is 0, so stencil-based shadow paths disable themselves
+  (see `tr_shadows.c`) instead of relying on missing stencil operations.
+* `qglReadPixels(GL_DEPTH_COMPONENT, ...)` is not supported by the Vulkan
+  backend and fills the destination with `1.0f`; color readback is supported.

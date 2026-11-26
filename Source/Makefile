@@ -39,11 +39,12 @@ endif
 # The graphical client always contains the render-thread code; r_smp decides
 # at run time whether it can be used.  On Linux and macOS also create a
 # ZEQ2-smp compatibility symlink so existing scripts keep working.
+# Use COMPILE_PLATFORM here; PLATFORM is assigned later in this file.
 ifndef BUILD_CLIENT_SMP
-  ifeq ($(PLATFORM),darwin)
+  ifeq ($(COMPILE_PLATFORM),darwin)
     BUILD_CLIENT_SMP = 1
   else
-  ifeq ($(PLATFORM),linux)
+  ifeq ($(COMPILE_PLATFORM),linux)
     BUILD_CLIENT_SMP = 1
   else
     BUILD_CLIENT_SMP = 0

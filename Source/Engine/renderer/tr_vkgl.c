@@ -29,13 +29,26 @@ compiled to SPIR-V with shaderc.
 
 #define VK_MAX_TEXTURES  1024
 #define VK_MAX_PROGRAMS  64
-#define VK_MAX_UNIFORMS  64
+#define VK_MAX_UNIFORMS  72
 #define VK_MAX_PIPELINES 128
 #define VK_MAX_SWAP      8
 #define VK_NUM_SAMPLERS  8
+#define VK_NUM_SAMPLERS_MIP (VK_NUM_SAMPLERS * 2)
 #define VK_WHITE_TEXTURE (VK_MAX_TEXTURES - 1)
 #define VK_UNIFORM_ALIGN 256
 #define VK_VERTEX_ALIGN  4
+
+/* Alpha-test modes stored in the UBO.  Zero disables the emulation so a
+   disabled GL_ALPHA_TEST can never discard. */
+#define VK_ALPHA_DISABLED 0
+#define VK_ALPHA_NEVER    1
+#define VK_ALPHA_LESS     2
+#define VK_ALPHA_EQUAL    3
+#define VK_ALPHA_LEQUAL   4
+#define VK_ALPHA_GREATER  5
+#define VK_ALPHA_NOTEQUAL 6
+#define VK_ALPHA_GEQUAL   7
+#define VK_ALPHA_ALWAYS   8
 
 typedef struct {
 	vec3_t xyz;
@@ -51,7 +64,8 @@ typedef enum {
 	VKUNI_VEC2,
 	VKUNI_VEC3,
 	VKUNI_VEC4,
-	VKUNI_MAT4
+	VKUNI_MAT4,
+	VKUNI_SAMPLER
 } vkUniformType_t;
 
 typedef struct {
@@ -66,10 +80,13 @@ typedef struct {
 	char name[64];
 	VkShaderModule vertexModule;
 	VkShaderModule fragmentModule;
+	GLhandleARB vertexShader;
+	GLhandleARB fragmentShader;
 	vkUniform_t uniforms[VK_MAX_UNIFORMS];
 	int numUniforms;
 	byte uboData[2048];
 	VkDeviceSize uboSize;
+	int generation;
 	qboolean valid;
 } vkProgram_t;
 
@@ -81,17 +98,26 @@ typedef struct {
 	int width, height, mipLevels;
 	qboolean clamp;
 	qboolean nearest;
+	qboolean mipmapped;
 	qboolean allocated;
+	qboolean initialized;
 } vkTexture_t;
 
 typedef struct {
 	vkProgram_t *program;
 	VkPipeline pipeline;
 	VkPrimitiveTopology topology;
+	int generation;
 	qboolean blend;
 	qboolean depthTest;
 	qboolean depthWrite;
-	qboolean cullBack;
+	VkCullModeFlags cullMode;
+	int blendSrc, blendDst;
+	int depthFunc;
+	int frontFace;
+	int polygonMode;
+	VkColorComponentFlags colorMask;
+	qboolean polygonOffset;
 	int used;
 } vkPipeline_t;
 
@@ -133,7 +159,7 @@ typedef struct {
 	VkDescriptorSetLayout descriptorLayout;
 	VkDescriptorPool descriptorPool;
 	VkPipelineLayout pipelineLayout;
-	VkSampler samplers[4];
+	VkSampler samplers[VK_NUM_SAMPLERS_MIP];
 
 	VkBuffer vertexBuffer;
 	VkDeviceMemory vertexMemory;
@@ -177,6 +203,9 @@ typedef struct {
 	qboolean depthTest;
 	qboolean depthWrite;
 	qboolean blend;
+	qboolean alphaTest;
+	int alphaFunc;
+	float alphaRef;
 	qboolean cullFace;
 	qboolean texture2D[VK_NUM_SAMPLERS];
 	int textureUnits;
@@ -187,6 +216,10 @@ typedef struct {
 	int cullMode;
 	int frontFace;
 	int polygonMode;
+	qboolean polygonOffset;
+	float polygonOffsetFactor;
+	float polygonOffsetUnits;
+	VkColorComponentFlags colorMask;
 	float lineWidth;
 	qboolean currentColorSet;
 	float currentColor[4];
@@ -216,6 +249,7 @@ typedef struct {
 
 	int boundTextures[VK_NUM_SAMPLERS];
 	GLuint boundTextureName;
+	GLuint nextTextureName;
 	VkDescriptorSet descriptorSets[4096];
 	int numDescriptorSets;
 
@@ -232,17 +266,18 @@ static const float vkIdentity[16] = {
 /* Small helpers                                                             */
 /* ------------------------------------------------------------------------ */
 
-static void VK_Check( VkResult result, const char *what )
+static qboolean VK_Check( VkResult result, const char *what )
 {
 	if ( result == VK_SUCCESS )
 	{
-		return;
+		return qtrue;
 	}
 
 	ri.Printf( PRINT_ALL, "Vulkan: %s failed (%d)\n", what, (int)result );
+	return qfalse;
 }
 
-static uint32_t VK_MemoryType( uint32_t typeBits, VkMemoryPropertyFlags properties )
+static int VK_MemoryType( uint32_t typeBits, VkMemoryPropertyFlags properties )
 {
 	uint32_t i;
 
@@ -251,49 +286,83 @@ static uint32_t VK_MemoryType( uint32_t typeBits, VkMemoryPropertyFlags properti
 		if ( ( typeBits & ( 1u << i ) ) &&
 		     ( vk.memoryProps.memoryTypes[i].propertyFlags & properties ) == properties )
 		{
-			return i;
+			return (int)i;
 		}
 	}
 
-	return 0;
+	ri.Printf( PRINT_ALL, "Vulkan: no suitable memory type found\n" );
+	return -1;
 }
 
-static void VK_CreateBuffer( VkDeviceSize size, VkBufferUsageFlags usage,
-                             VkMemoryPropertyFlags properties,
-                             VkBuffer *buffer, VkDeviceMemory *memory, void **mapped )
+static qboolean VK_CreateBuffer( VkDeviceSize size, VkBufferUsageFlags usage,
+                                 VkMemoryPropertyFlags properties,
+                                 VkBuffer *buffer, VkDeviceMemory *memory, void **mapped )
 {
 	VkBufferCreateInfo bufferInfo;
 	VkMemoryRequirements requirements;
 	VkMemoryAllocateInfo allocInfo;
+	int memoryType;
 
 	Com_Memset( &bufferInfo, 0, sizeof( bufferInfo ) );
 	bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
 	bufferInfo.size = size;
 	bufferInfo.usage = usage;
 	bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-	VK_Check( vkCreateBuffer( vk.device, &bufferInfo, NULL, buffer ), "vkCreateBuffer" );
+	if ( !VK_Check( vkCreateBuffer( vk.device, &bufferInfo, NULL, buffer ),
+	                "vkCreateBuffer" ) )
+	{
+		return qfalse;
+	}
 
 	vkGetBufferMemoryRequirements( vk.device, *buffer, &requirements );
+	memoryType = VK_MemoryType( requirements.memoryTypeBits, properties );
+	if ( memoryType < 0 )
+	{
+		vkDestroyBuffer( vk.device, *buffer, NULL );
+		*buffer = VK_NULL_HANDLE;
+		return qfalse;
+	}
 	Com_Memset( &allocInfo, 0, sizeof( allocInfo ) );
 	allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
 	allocInfo.allocationSize = requirements.size;
-	allocInfo.memoryTypeIndex = VK_MemoryType( requirements.memoryTypeBits, properties );
-	VK_Check( vkAllocateMemory( vk.device, &allocInfo, NULL, memory ), "vkAllocateMemory" );
-	VK_Check( vkBindBufferMemory( vk.device, *buffer, *memory, 0 ), "vkBindBufferMemory" );
-
-	if ( mapped )
+	allocInfo.memoryTypeIndex = (uint32_t)memoryType;
+	if ( !VK_Check( vkAllocateMemory( vk.device, &allocInfo, NULL, memory ),
+	                "vkAllocateMemory" ) )
 	{
-		VK_Check( vkMapMemory( vk.device, *memory, 0, size, 0, mapped ), "vkMapMemory" );
+		vkDestroyBuffer( vk.device, *buffer, NULL );
+		*buffer = VK_NULL_HANDLE;
+		return qfalse;
 	}
+	if ( !VK_Check( vkBindBufferMemory( vk.device, *buffer, *memory, 0 ),
+	                "vkBindBufferMemory" ) )
+	{
+		vkFreeMemory( vk.device, *memory, NULL );
+		vkDestroyBuffer( vk.device, *buffer, NULL );
+		*buffer = VK_NULL_HANDLE;
+		*memory = VK_NULL_HANDLE;
+		return qfalse;
+	}
+
+	if ( mapped && !VK_Check( vkMapMemory( vk.device, *memory, 0, size, 0, mapped ),
+	                           "vkMapMemory" ) )
+	{
+		vkFreeMemory( vk.device, *memory, NULL );
+		vkDestroyBuffer( vk.device, *buffer, NULL );
+		*buffer = VK_NULL_HANDLE;
+		*memory = VK_NULL_HANDLE;
+		return qfalse;
+	}
+	return qtrue;
 }
 
-static void VK_CreateImage( uint32_t width, uint32_t height, uint32_t mipLevels,
-                            VkFormat format, VkImageUsageFlags usage,
-                            VkImage *image, VkDeviceMemory *memory )
+static qboolean VK_CreateImage( uint32_t width, uint32_t height, uint32_t mipLevels,
+                                VkFormat format, VkImageUsageFlags usage,
+                                VkImage *image, VkDeviceMemory *memory )
 {
 	VkImageCreateInfo imageInfo;
 	VkMemoryRequirements requirements;
 	VkMemoryAllocateInfo allocInfo;
+	int memoryType;
 
 	Com_Memset( &imageInfo, 0, sizeof( imageInfo ) );
 	imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
@@ -308,16 +377,41 @@ static void VK_CreateImage( uint32_t width, uint32_t height, uint32_t mipLevels,
 	imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
 	imageInfo.usage = usage;
 	imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-	VK_Check( vkCreateImage( vk.device, &imageInfo, NULL, image ), "vkCreateImage" );
+	if ( !VK_Check( vkCreateImage( vk.device, &imageInfo, NULL, image ), "vkCreateImage" ) )
+	{
+		return qfalse;
+	}
 
 	vkGetImageMemoryRequirements( vk.device, *image, &requirements );
+	memoryType = VK_MemoryType( requirements.memoryTypeBits,
+	                            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT );
+	if ( memoryType < 0 )
+	{
+		vkDestroyImage( vk.device, *image, NULL );
+		*image = VK_NULL_HANDLE;
+		return qfalse;
+	}
 	Com_Memset( &allocInfo, 0, sizeof( allocInfo ) );
 	allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
 	allocInfo.allocationSize = requirements.size;
-	allocInfo.memoryTypeIndex = VK_MemoryType( requirements.memoryTypeBits,
-	                                           VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT );
-	VK_Check( vkAllocateMemory( vk.device, &allocInfo, NULL, memory ), "vkAllocateMemory" );
-	VK_Check( vkBindImageMemory( vk.device, *image, *memory, 0 ), "vkBindImageMemory" );
+	allocInfo.memoryTypeIndex = (uint32_t)memoryType;
+	if ( !VK_Check( vkAllocateMemory( vk.device, &allocInfo, NULL, memory ),
+	                "vkAllocateMemory" ) )
+	{
+		vkDestroyImage( vk.device, *image, NULL );
+		*image = VK_NULL_HANDLE;
+		return qfalse;
+	}
+	if ( !VK_Check( vkBindImageMemory( vk.device, *image, *memory, 0 ),
+	                "vkBindImageMemory" ) )
+	{
+		vkFreeMemory( vk.device, *memory, NULL );
+		vkDestroyImage( vk.device, *image, NULL );
+		*image = VK_NULL_HANDLE;
+		*memory = VK_NULL_HANDLE;
+		return qfalse;
+	}
+	return qtrue;
 }
 
 static VkImageView VK_CreateImageView( VkImage image, VkFormat format, uint32_t mipLevels,
@@ -341,6 +435,7 @@ static VkImageView VK_CreateImageView( VkImage image, VkFormat format, uint32_t 
 }
 
 static void VK_Transition( VkCommandBuffer command, VkImage image,
+                           VkImageAspectFlags aspect,
                            VkImageLayout oldLayout, VkImageLayout newLayout,
                            VkAccessFlags srcAccess, VkAccessFlags dstAccess,
                            VkPipelineStageFlags srcStage, VkPipelineStageFlags dstStage,
@@ -357,7 +452,7 @@ static void VK_Transition( VkCommandBuffer command, VkImage image,
 	barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 	barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 	barrier.image = image;
-	barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	barrier.subresourceRange.aspectMask = aspect;
 	barrier.subresourceRange.baseMipLevel = baseMip;
 	barrier.subresourceRange.levelCount = mipCount;
 	barrier.subresourceRange.baseArrayLayer = 0;
@@ -410,7 +505,22 @@ static int VK_UniformTypeSize( vkUniformType_t type )
 		case VKUNI_VEC3:  return 12;
 		case VKUNI_VEC4:  return 16;
 		case VKUNI_MAT4:  return 64;
+		case VKUNI_SAMPLER: return 4;
 		default:          return 4;
+	}
+}
+
+static const char *VK_UniformTypeString( vkUniformType_t type )
+{
+	switch ( type )
+	{
+		case VKUNI_FLOAT: return "float";
+		case VKUNI_INT:   return "int";
+		case VKUNI_VEC2:  return "vec2";
+		case VKUNI_VEC3:  return "vec3";
+		case VKUNI_VEC4:  return "vec4";
+		case VKUNI_MAT4:  return "mat4";
+		default:          return "int";
 	}
 }
 
@@ -438,8 +548,218 @@ static vkUniform_t *VK_FindUniform( vkProgram_t *program, const char *name )
 	return NULL;
 }
 
+static void VK_AddUniform( vkProgram_t *program, const char *name, vkUniformType_t type )
+{
+	VkDeviceSize offset;
+	vkUniform_t *uniform;
+
+	if ( VK_FindUniform( program, name ) )
+	{
+		return;
+	}
+	if ( program->numUniforms >= VK_MAX_UNIFORMS )
+	{
+		ri.Printf( PRINT_ALL, "Vulkan: too many uniforms for %s\n", program->name );
+		return;
+	}
+	offset = ( program->uboSize + 15 ) & ~(VkDeviceSize)15;
+	uniform = &program->uniforms[program->numUniforms++];
+	Com_Memset( uniform, 0, sizeof( *uniform ) );
+	Q_strncpyz( uniform->name, name, sizeof( uniform->name ) );
+	uniform->type = type;
+	uniform->offset = offset;
+	uniform->size = VK_UniformTypeSize( type );
+	uniform->sampler = -1;
+	program->uboSize = offset + uniform->size;
+}
+
+static qboolean VK_ParseUniformLine( const char *line, char *type, int typeSize,
+                                     char *name, int nameSize )
+{
+	char declaration[1024];
+	char *semicolon;
+
+	if ( Q_strncmp( line, "uniform ", 8 ) != 0 )
+	{
+		return qfalse;
+	}
+	Q_strncpyz( declaration, line + 8, sizeof( declaration ) );
+	if ( sscanf( declaration, "%63s %63[^;]", type, name ) < 2 )
+	{
+		return qfalse;
+	}
+	if ( ( semicolon = strchr( name, ';' ) ) != NULL )
+	{
+		*semicolon = 0;
+	}
+	(void)typeSize;
+	(void)nameSize;
+	return qtrue;
+}
+
 /*
- * Strip GLSL 1.20 constructs and collect uniform declarations.  Non-opaque
+ * Build one program-wide uniform table from both shader stages before either
+ * stage is compiled.  Samplers are opaque and get bindings; int/float/vector
+ * and matrix uniforms get explicit, 16-byte aligned std140 offsets in the UBO.
+ */
+static void VK_CollectUniforms( const char *source, vkProgram_t *program )
+{
+	const char *cursor = source;
+	const char *lineEnd;
+	char line[1024];
+	char type[64], name[64];
+	int samplerCount = 0;
+
+	while ( cursor && *cursor )
+	{
+		lineEnd = strchr( cursor, '\n' );
+		if ( lineEnd )
+		{
+			Q_strncpyz( line, cursor,
+			            ( (int)( lineEnd - cursor ) + 1 < (int)sizeof( line ) ) ?
+			            (int)( lineEnd - cursor ) + 1 : (int)sizeof( line ) );
+			cursor = lineEnd + 1;
+		}
+		else
+		{
+			Q_strncpyz( line, cursor, sizeof( line ) );
+			cursor = NULL;
+		}
+
+		if ( !VK_ParseUniformLine( line, type, sizeof( type ), name, sizeof( name ) ) )
+		{
+			continue;
+		}
+
+		{
+			vkUniform_t *uniform = VK_FindUniform( program, name );
+
+			if ( VK_IsSampler( type ) )
+			{
+				int unit = samplerCount++;
+
+				if ( !Q_strncmp( name, "u_Texture", 9 ) &&
+				     name[9] >= '0' && name[9] <= '7' )
+				{
+					unit = name[9] - '0';
+				}
+				if ( unit < 0 || unit >= VK_NUM_SAMPLERS )
+				{
+					unit = VK_NUM_SAMPLERS - 1;
+				}
+				if ( !uniform && program->numUniforms < VK_MAX_UNIFORMS )
+				{
+					uniform = &program->uniforms[program->numUniforms++];
+					Com_Memset( uniform, 0, sizeof( *uniform ) );
+					Q_strncpyz( uniform->name, name, sizeof( uniform->name ) );
+					uniform->type = VKUNI_SAMPLER;
+					uniform->sampler = -1;
+				}
+				if ( uniform )
+				{
+					uniform->type = VKUNI_SAMPLER;
+					uniform->size = 0;
+					uniform->offset = 0;
+					if ( uniform->sampler < 0 )
+					{
+						uniform->sampler = unit;
+					}
+				}
+			}
+			else if ( !uniform && program->numUniforms < VK_MAX_UNIFORMS )
+			{
+				VkDeviceSize offset = ( program->uboSize + 15 ) & ~(VkDeviceSize)15;
+
+				uniform = &program->uniforms[program->numUniforms++];
+				Com_Memset( uniform, 0, sizeof( *uniform ) );
+				Q_strncpyz( uniform->name, name, sizeof( uniform->name ) );
+				uniform->type = VK_UniformType( type );
+				uniform->offset = offset;
+				uniform->size = VK_UniformTypeSize( uniform->type );
+				uniform->sampler = -1;
+				program->uboSize = offset + uniform->size;
+			}
+		}
+	}
+
+	/* Reserve the fixed-function alpha test uniforms for every program so the
+	   translated fragment stage can emulate GL_ALPHA_TEST uniformly. */
+	VK_AddUniform( program, "u_VKAlphaRef", VKUNI_FLOAT );
+	VK_AddUniform( program, "u_VKAlphaFunc", VKUNI_INT );
+
+	program->uboSize = ( program->uboSize + 15 ) & ~(VkDeviceSize)15;
+	if ( program->uboSize > sizeof( program->uboData ) )
+	{
+		program->uboSize = sizeof( program->uboData );
+	}
+}
+
+static qboolean VK_ValidateUniformLayout( vkProgram_t *program )
+{
+	int i;
+
+	for ( i = 0; i < program->numUniforms; i++ )
+	{
+		vkUniform_t *uniform = &program->uniforms[i];
+
+		if ( uniform->type == VKUNI_SAMPLER )
+		{
+			if ( uniform->sampler < 0 || uniform->sampler >= VK_NUM_SAMPLERS )
+			{
+				ri.Printf( PRINT_ALL, "Vulkan: invalid sampler binding for %s\n",
+				           uniform->name );
+				return qfalse;
+			}
+			continue;
+		}
+		if ( ( uniform->offset & 15 ) != 0 || uniform->size <= 0 ||
+		     uniform->offset + uniform->size > program->uboSize ||
+		     program->uboSize > sizeof( program->uboData ) )
+		{
+			ri.Printf( PRINT_ALL, "Vulkan: invalid UBO offset for %s\n", uniform->name );
+			return qfalse;
+		}
+	}
+	return qtrue;
+}
+
+static int VK_AlphaTestMode( void )
+{
+	switch ( vk.alphaFunc )
+	{
+		case GL_NEVER:    return VK_ALPHA_NEVER;
+		case GL_LESS:     return VK_ALPHA_LESS;
+		case GL_EQUAL:    return VK_ALPHA_EQUAL;
+		case GL_LEQUAL:   return VK_ALPHA_LEQUAL;
+		case GL_GREATER:  return VK_ALPHA_GREATER;
+		case GL_NOTEQUAL: return VK_ALPHA_NOTEQUAL;
+		case GL_GEQUAL:   return VK_ALPHA_GEQUAL;
+		default:          return VK_ALPHA_ALWAYS;
+	}
+}
+
+static void VK_SetAlphaTestUniforms( vkProgram_t *program )
+{
+	vkUniform_t *uniform;
+	float ref = vk.alphaRef;
+	int mode = vk.alphaTest ? VK_AlphaTestMode() : VK_ALPHA_DISABLED;
+
+	uniform = VK_FindUniform( program, "u_VKAlphaRef" );
+	if ( uniform && uniform->type == VKUNI_FLOAT )
+	{
+		Com_Memcpy( program->uboData + uniform->offset, &ref, sizeof( ref ) );
+	}
+	uniform = VK_FindUniform( program, "u_VKAlphaFunc" );
+	if ( uniform && uniform->type == VKUNI_INT )
+	{
+		Com_Memcpy( program->uboData + uniform->offset, &mode, sizeof( mode ) );
+	}
+}
+
+/*
+ * Strip GLSL 1.20 constructs and emit a Vulkan-friendly shader.  The UBO
+ * declaration is generated from the complete program table so both stages
+ * declare the same block with the same explicit offsets.
  * uniforms are placed in a std140 block (Vulkan requires explicit blocks),
  * samplers get fixed bindings matching the 8 texture units of the renderer.
  * Both shader stages contribute to one program-wide uniform table so the
@@ -457,11 +777,13 @@ static char *VK_TranslateGLSL( const char *source, qboolean vertexShader,
 	char *result;
 	char *resultCursor;
 	int resultRemaining;
-	int samplerCount = 0;
 	int varyingLocation = 0;
 	int attributeLocation = 5;
+	int braceDepth = 0;
+	qboolean inMain = qfalse;
 	int pass;
 	int i, j;
+	char *brace;
 	vkUniform_t *uniform;
 
 	result = ri.Malloc( strlen( source ) * 3 + 16384 );
@@ -476,11 +798,13 @@ static char *VK_TranslateGLSL( const char *source, qboolean vertexShader,
 	{
 		if ( pass == 0 )
 		{
-			/* Collect uniforms on the first pass; the prefix emitted on the
-			   second pass needs the complete list. */
+			/* The program-wide table is already complete.  Collect just the
+			   names used by this stage for sampler bindings and #defines. */
 			cursor = source;
 			while ( cursor && *cursor )
 			{
+				char type[64], name[64];
+
 				lineEnd = strchr( cursor, '\n' );
 				if ( lineEnd )
 				{
@@ -495,79 +819,22 @@ static char *VK_TranslateGLSL( const char *source, qboolean vertexShader,
 					cursor = NULL;
 				}
 
-				if ( Q_strncmp( line, "uniform ", 8 ) != 0 )
+				if ( !VK_ParseUniformLine( line, type, sizeof( type ),
+				                           name, sizeof( name ) ) )
 				{
 					continue;
 				}
-
-				Q_strncpyz( declaration, line + 8, sizeof( declaration ) );
+				for ( j = 0; j < nameCount; j++ )
 				{
-					char type[64], name[64];
-					char *semicolon;
-
-					if ( sscanf( declaration, "%63s %63[^;]", type, name ) < 2 )
+					if ( !Q_stricmp( names[j], name ) )
 					{
-						continue;
-					}
-					if ( ( semicolon = strchr( name, ';' ) ) != NULL )
-					{
-						*semicolon = 0;
-					}
-
-					uniform = VK_FindUniform( program, name );
-					if ( VK_IsSampler( type ) )
-					{
-						int unit = samplerCount++;
-						if ( !Q_strncmp( name, "u_Texture", 9 ) &&
-						     name[9] >= '0' && name[9] <= '7' )
-						{
-							unit = name[9] - '0';
-						}
-						if ( unit >= VK_NUM_SAMPLERS )
-						{
-							unit = VK_NUM_SAMPLERS - 1;
-						}
-						if ( !uniform && program->numUniforms < VK_MAX_UNIFORMS )
-						{
-							uniform = &program->uniforms[program->numUniforms++];
-							Q_strncpyz( uniform->name, name, sizeof( uniform->name ) );
-							uniform->type = VKUNI_INT;
-							uniform->size = 4;
-						}
-						if ( uniform )
-						{
-							uniform->sampler = unit;
-						}
-					}
-					else if ( !uniform && program->numUniforms < VK_MAX_UNIFORMS )
-					{
-						VkDeviceSize offset;
-						uniform = &program->uniforms[program->numUniforms++];
-						offset = ( program->uboSize + 15 ) & ~(VkDeviceSize)15;
-						Q_strncpyz( uniform->name, name, sizeof( uniform->name ) );
-						uniform->type = VK_UniformType( type );
-						uniform->offset = offset;
-						uniform->size = VK_UniformTypeSize( uniform->type );
-						program->uboSize = offset + uniform->size;
-					}
-
-					for ( j = 0; j < nameCount; j++ )
-					{
-						if ( !Q_stricmp( names[j], name ) )
-						{
-							break;
-						}
-					}
-					if ( j == nameCount && nameCount < VK_MAX_UNIFORMS )
-					{
-						Q_strncpyz( names[nameCount++], name, sizeof( names[0] ) );
+						break;
 					}
 				}
-			}
-			program->uboSize = ( program->uboSize + 15 ) & ~(VkDeviceSize)15;
-			if ( program->uboSize > sizeof( program->uboData ) )
-			{
-				program->uboSize = sizeof( program->uboData );
+				if ( j == nameCount && nameCount < VK_MAX_UNIFORMS )
+				{
+					Q_strncpyz( names[nameCount++], name, sizeof( names[0] ) );
+				}
 			}
 			resultCursor = result;
 			resultRemaining = strlen( source ) * 3 + 16384;
@@ -587,38 +854,30 @@ static char *VK_TranslateGLSL( const char *source, qboolean vertexShader,
 		                          "#define gl_FragColor vkFragColor\n"
 		                          "#define varying in\n" );
 
-		for ( i = 0; i < nameCount; i++ )
+		/* Emit the same block in both stages with exact CPU-side offsets. */
+		for ( i = 0; i < program->numUniforms; i++ )
 		{
-			uniform = VK_FindUniform( program, names[i] );
-			if ( !uniform )
+			uniform = &program->uniforms[i];
+			if ( uniform->type == VKUNI_SAMPLER )
 			{
 				continue;
 			}
-			if ( uniform->type == VKUNI_INT && uniform->size == 4 )
-			{
-				/* Samplers are opaque and cannot live in a UBO. */
-				continue;
-			}
-			VK_Append( &resultCursor, &resultRemaining, "\t%s %s;\n",
-			           uniform->type == VKUNI_FLOAT ? "float" :
-			           uniform->type == VKUNI_VEC2 ? "vec2" :
-			           uniform->type == VKUNI_VEC3 ? "vec3" :
-			           uniform->type == VKUNI_VEC4 ? "vec4" : "mat4", names[i] );
+			VK_Append( &resultCursor, &resultRemaining, "\tlayout(offset=%u) %s %s;\n",
+			           (unsigned)uniform->offset, VK_UniformTypeString( uniform->type ),
+			           uniform->name );
 		}
 		VK_Append( &resultCursor, &resultRemaining,
 		           "} vkUniforms;\n" );
 
 		for ( i = 0; i < nameCount; i++ )
 		{
-			vkUniform_t *uniform = VK_FindUniform( program, names[i] );
-			qboolean isSampler;
+			uniform = VK_FindUniform( program, names[i] );
 
 			if ( !uniform )
 			{
 				continue;
 			}
-			isSampler = uniform->type == VKUNI_INT && uniform->size == 4;
-			if ( isSampler )
+			if ( uniform->type == VKUNI_SAMPLER )
 			{
 				VK_Append( &resultCursor, &resultRemaining,
 				           "layout(set=0,binding=%d) uniform sampler2D %s;\n",
@@ -629,6 +888,27 @@ static char *VK_TranslateGLSL( const char *source, qboolean vertexShader,
 				VK_Append( &resultCursor, &resultRemaining,
 				           "#define %s vkUniforms.%s\n", names[i], names[i] );
 			}
+		}
+
+		if ( !vertexShader )
+		{
+			VK_Append( &resultCursor, &resultRemaining,
+			           "bool vkAlphaPass(float a) {\n"
+			           "  int mode = vkUniforms.u_VKAlphaFunc;\n"
+			           "  if (mode == %d || mode == %d) return true;\n"
+			           "  float ref = vkUniforms.u_VKAlphaRef;\n"
+			           "  if (mode == %d) return false;\n"
+			           "  if (mode == %d) return a < ref;\n"
+			           "  if (mode == %d) return a == ref;\n"
+			           "  if (mode == %d) return a <= ref;\n"
+			           "  if (mode == %d) return a > ref;\n"
+			           "  if (mode == %d) return a != ref;\n"
+			           "  if (mode == %d) return a >= ref;\n"
+			           "  return true;\n"
+			           "}\n",
+			           VK_ALPHA_DISABLED, VK_ALPHA_ALWAYS, VK_ALPHA_NEVER,
+			           VK_ALPHA_LESS, VK_ALPHA_EQUAL, VK_ALPHA_LEQUAL,
+			           VK_ALPHA_GREATER, VK_ALPHA_NOTEQUAL, VK_ALPHA_GEQUAL );
 		}
 
 		cursor = source;
@@ -724,6 +1004,33 @@ static char *VK_TranslateGLSL( const char *source, qboolean vertexShader,
 				continue;
 			}
 
+			brace = line;
+			while ( *brace == ' ' || *brace == '\t' )
+			{
+				brace++;
+			}
+			if ( !vertexShader && inMain && braceDepth == 1 && brace[0] == '}' &&
+			     brace[1] == '\0' )
+			{
+				VK_Append( &resultCursor, &resultRemaining,
+				           "\tif (!vkAlphaPass(vkFragColor.a)) discard;\n" );
+			}
+			if ( strstr( line, "main" ) && strstr( line, "(" ) )
+			{
+				inMain = qtrue;
+			}
+			for ( brace = line; *brace; brace++ )
+			{
+				if ( *brace == '{' )
+				{
+					braceDepth++;
+				}
+				else if ( *brace == '}' )
+				{
+					braceDepth--;
+				}
+			}
+
 			VK_Append( &resultCursor, &resultRemaining, "%s\n", line );
 		}
 	}
@@ -809,14 +1116,12 @@ static const char *vkBuiltinVertexShader =
 static const char *vkBuiltinFragmentShader =
 	"uniform sampler2D u_Texture0;\n"
 	"uniform vec4 u_FogColor;\n"
-	"uniform float u_AlphaTest;\n"
 	"varying vec4 v_color;\n"
 	"varying vec2 v_texcoord;\n"
 	"varying vec3 v_normal;\n"
 	"void main() {\n"
 	"  vec4 texel = texture2D(u_Texture0, v_texcoord);\n"
 	"  vec4 color = texel * v_color;\n"
-	"  if (color.a < u_AlphaTest) discard;\n"
 	"  float diffuse = 0.75 + 0.25 * max(dot(normalize(v_normal), vec3(0.4, 0.4, 0.82)), 0.0);\n"
 	"  gl_FragColor = vec4(color.rgb * diffuse, color.a);\n"
 	"}\n";
@@ -865,7 +1170,7 @@ static qboolean VK_FindSurfaceFormat( void )
 	return qtrue;
 }
 
-static qboolean VK_CreateSwapchain( void )
+static qboolean VK_CreateSwapchain( VkSwapchainKHR oldSwapchain )
 {
 	VkSurfaceCapabilitiesKHR capabilities;
 	VkSwapchainCreateInfoKHR createInfo;
@@ -874,9 +1179,12 @@ static qboolean VK_CreateSwapchain( void )
 	VkPresentModeKHR *modes;
 	uint32_t i;
 
-	VK_Check( vkGetPhysicalDeviceSurfaceCapabilitiesKHR( vk.physical, vk.surface,
-	                                                      &capabilities ),
-	          "vkGetPhysicalDeviceSurfaceCapabilitiesKHR" );
+	if ( !VK_Check( vkGetPhysicalDeviceSurfaceCapabilitiesKHR( vk.physical, vk.surface,
+	                                                           &capabilities ),
+	                "vkGetPhysicalDeviceSurfaceCapabilitiesKHR" ) )
+	{
+		return qfalse;
+	}
 
 	vk.extent = capabilities.currentExtent;
 	if ( vk.extent.width == 0 || vk.extent.height == 0 )
@@ -893,8 +1201,12 @@ static qboolean VK_CreateSwapchain( void )
 		vk.extent.height = 1;
 	}
 
-	VK_Check( vkGetPhysicalDeviceSurfacePresentModesKHR( vk.physical, vk.surface, &count, NULL ),
-	          "vkGetPhysicalDeviceSurfacePresentModesKHR" );
+	if ( !VK_Check( vkGetPhysicalDeviceSurfacePresentModesKHR( vk.physical, vk.surface,
+	                                                            &count, NULL ),
+	                "vkGetPhysicalDeviceSurfacePresentModesKHR" ) )
+	{
+		return qfalse;
+	}
 	if ( count > 0 )
 	{
 		modes = ri.Malloc( count * sizeof( *modes ) );
@@ -924,6 +1236,10 @@ static qboolean VK_CreateSwapchain( void )
 	{
 		createInfo.minImageCount = capabilities.maxImageCount;
 	}
+	if ( createInfo.minImageCount > VK_MAX_SWAP )
+	{
+		createInfo.minImageCount = VK_MAX_SWAP;
+	}
 	createInfo.imageFormat = vk.surfaceFormat.format;
 	createInfo.imageColorSpace = vk.surfaceFormat.colorSpace;
 	createInfo.imageExtent = vk.extent;
@@ -934,26 +1250,36 @@ static qboolean VK_CreateSwapchain( void )
 	createInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
 	createInfo.presentMode = presentMode;
 	createInfo.clipped = VK_TRUE;
-	VK_Check( vkCreateSwapchainKHR( vk.device, &createInfo, NULL, &vk.swapchain ),
-	          "vkCreateSwapchainKHR" );
-	if ( vk.swapchain == VK_NULL_HANDLE )
+	createInfo.oldSwapchain = oldSwapchain;
+	if ( !VK_Check( vkCreateSwapchainKHR( vk.device, &createInfo, NULL, &vk.swapchain ),
+	                "vkCreateSwapchainKHR" ) || vk.swapchain == VK_NULL_HANDLE )
 	{
 		return qfalse;
 	}
 
 	vk.numSwapImages = 0;
-	VK_Check( vkGetSwapchainImagesKHR( vk.device, vk.swapchain, &vk.numSwapImages, NULL ),
-	          "vkGetSwapchainImagesKHR" );
+	if ( !VK_Check( vkGetSwapchainImagesKHR( vk.device, vk.swapchain, &vk.numSwapImages, NULL ),
+	                "vkGetSwapchainImagesKHR" ) || vk.numSwapImages == 0 )
+	{
+		return qfalse;
+	}
 	if ( vk.numSwapImages > VK_MAX_SWAP )
 	{
 		vk.numSwapImages = VK_MAX_SWAP;
 	}
-	VK_Check( vkGetSwapchainImagesKHR( vk.device, vk.swapchain, &vk.numSwapImages,
-	                                   vk.swapImages ), "vkGetSwapchainImagesKHR" );
+	if ( !VK_Check( vkGetSwapchainImagesKHR( vk.device, vk.swapchain, &vk.numSwapImages,
+	                                          vk.swapImages ), "vkGetSwapchainImagesKHR" ) )
+	{
+		return qfalse;
+	}
 	for ( i = 0; i < vk.numSwapImages; i++ )
 	{
 		vk.swapViews[i] = VK_CreateImageView( vk.swapImages[i], vk.surfaceFormat.format,
 		                                     1, VK_IMAGE_ASPECT_COLOR_BIT );
+		if ( vk.swapViews[i] == VK_NULL_HANDLE )
+		{
+			return qfalse;
+		}
 	}
 	return qtrue;
 }
@@ -978,21 +1304,32 @@ static void VK_DestroySwapchain( void )
 	}
 }
 
-static void VK_CreateAttachments( void )
+static qboolean VK_CreateAttachments( void )
 {
-	VK_CreateImage( vk.extent.width, vk.extent.height, 1, VK_FORMAT_R8G8B8A8_UNORM,
-	                VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
-	                VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-	                &vk.colorImage, &vk.colorMemory );
+	if ( !VK_CreateImage( vk.extent.width, vk.extent.height, 1, VK_FORMAT_R8G8B8A8_UNORM,
+	                      VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
+	                      VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+	                      &vk.colorImage, &vk.colorMemory ) )
+	{
+		return qfalse;
+	}
 	vk.colorView = VK_CreateImageView( vk.colorImage, VK_FORMAT_R8G8B8A8_UNORM, 1,
 	                                   VK_IMAGE_ASPECT_COLOR_BIT );
+	if ( vk.colorView == VK_NULL_HANDLE )
+	{
+		return qfalse;
+	}
 
-	VK_CreateImage( vk.extent.width, vk.extent.height, 1, VK_FORMAT_D32_SFLOAT,
-	                VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT |
-	                VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
-	                &vk.depthImage, &vk.depthMemory );
+	if ( !VK_CreateImage( vk.extent.width, vk.extent.height, 1, VK_FORMAT_D32_SFLOAT,
+	                      VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT |
+	                      VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+	                      &vk.depthImage, &vk.depthMemory ) )
+	{
+		return qfalse;
+	}
 	vk.depthView = VK_CreateImageView( vk.depthImage, VK_FORMAT_D32_SFLOAT, 1,
 	                                   VK_IMAGE_ASPECT_DEPTH_BIT );
+	return vk.depthView != VK_NULL_HANDLE ? qtrue : qfalse;
 }
 
 static void VK_DestroyAttachments( void )
@@ -1007,6 +1344,7 @@ static void VK_DestroyAttachments( void )
 		vkDestroyImage( vk.device, vk.colorImage, NULL );
 		vkFreeMemory( vk.device, vk.colorMemory, NULL );
 		vk.colorImage = VK_NULL_HANDLE;
+		vk.colorMemory = VK_NULL_HANDLE;
 	}
 	if ( vk.depthView != VK_NULL_HANDLE )
 	{
@@ -1018,10 +1356,11 @@ static void VK_DestroyAttachments( void )
 		vkDestroyImage( vk.device, vk.depthImage, NULL );
 		vkFreeMemory( vk.device, vk.depthMemory, NULL );
 		vk.depthImage = VK_NULL_HANDLE;
+		vk.depthMemory = VK_NULL_HANDLE;
 	}
 }
 
-static void VK_CreateRenderPass( void )
+static qboolean VK_CreateRenderPass( void )
 {
 	VkAttachmentDescription attachments[2];
 	VkAttachmentReference colorRef, depthRef;
@@ -1061,8 +1400,11 @@ static void VK_CreateRenderPass( void )
 	passInfo.pAttachments = attachments;
 	passInfo.subpassCount = 1;
 	passInfo.pSubpasses = &subpass;
-	VK_Check( vkCreateRenderPass( vk.device, &passInfo, NULL, &vk.renderPass ),
-	          "vkCreateRenderPass" );
+	if ( !VK_Check( vkCreateRenderPass( vk.device, &passInfo, NULL, &vk.renderPass ),
+	                "vkCreateRenderPass" ) )
+	{
+		return qfalse;
+	}
 
 	{
 		VkImageView views[2] = { vk.colorView, vk.depthView };
@@ -1074,12 +1416,16 @@ static void VK_CreateRenderPass( void )
 		frameInfo.width = vk.extent.width;
 		frameInfo.height = vk.extent.height;
 		frameInfo.layers = 1;
-		VK_Check( vkCreateFramebuffer( vk.device, &frameInfo, NULL, &vk.framebuffer ),
-		          "vkCreateFramebuffer" );
+		if ( !VK_Check( vkCreateFramebuffer( vk.device, &frameInfo, NULL, &vk.framebuffer ),
+		                "vkCreateFramebuffer" ) )
+		{
+			return qfalse;
+		}
 	}
+	return qtrue;
 }
 
-static void VK_CreateDescriptors( void )
+static qboolean VK_CreateDescriptors( void )
 {
 	VkDescriptorSetLayoutBinding bindings[VK_NUM_SAMPLERS + 1];
 	VkDescriptorSetLayoutCreateInfo layoutInfo;
@@ -1107,9 +1453,12 @@ static void VK_CreateDescriptors( void )
 	layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
 	layoutInfo.bindingCount = ARRAY_LEN( bindings );
 	layoutInfo.pBindings = bindings;
-	VK_Check( vkCreateDescriptorSetLayout( vk.device, &layoutInfo, NULL,
-	                                        &vk.descriptorLayout ),
-	          "vkCreateDescriptorSetLayout" );
+	if ( !VK_Check( vkCreateDescriptorSetLayout( vk.device, &layoutInfo, NULL,
+	                                              &vk.descriptorLayout ),
+	                "vkCreateDescriptorSetLayout" ) )
+	{
+		return qfalse;
+	}
 
 	poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
 	poolSizes[0].descriptorCount = ARRAY_LEN( vk.descriptorSets );
@@ -1121,8 +1470,11 @@ static void VK_CreateDescriptors( void )
 	poolInfo.maxSets = ARRAY_LEN( vk.descriptorSets );
 	poolInfo.poolSizeCount = 2;
 	poolInfo.pPoolSizes = poolSizes;
-	VK_Check( vkCreateDescriptorPool( vk.device, &poolInfo, NULL, &vk.descriptorPool ),
-	          "vkCreateDescriptorPool" );
+	if ( !VK_Check( vkCreateDescriptorPool( vk.device, &poolInfo, NULL, &vk.descriptorPool ),
+	                "vkCreateDescriptorPool" ) )
+	{
+		return qfalse;
+	}
 
 	Com_Memset( &pushRange, 0, sizeof( pushRange ) );
 	pushRange.size = sizeof( float ) * 4; /* tint, reserved for future use */
@@ -1133,9 +1485,12 @@ static void VK_CreateDescriptors( void )
 	layoutCreateInfo.pSetLayouts = &vk.descriptorLayout;
 	layoutCreateInfo.pushConstantRangeCount = 1;
 	layoutCreateInfo.pPushConstantRanges = &pushRange;
-	VK_Check( vkCreatePipelineLayout( vk.device, &layoutCreateInfo, NULL,
-	                                  &vk.pipelineLayout ),
-	          "vkCreatePipelineLayout" );
+	if ( !VK_Check( vkCreatePipelineLayout( vk.device, &layoutCreateInfo, NULL,
+	                                         &vk.pipelineLayout ),
+	                "vkCreatePipelineLayout" ) )
+	{
+		return qfalse;
+	}
 
 	Com_Memset( &samplerInfo, 0, sizeof( samplerInfo ) );
 	samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
@@ -1145,9 +1500,11 @@ static void VK_CreateDescriptors( void )
 	samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
 	samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
 	samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-	samplerInfo.maxLod = 16.0f;
-	for ( i = 0; i < 4; i++ )
+	for ( i = 0; i < ARRAY_LEN( vk.samplers ); i++ )
 	{
+		/* Bit 4 selects the mipmapped variant; textures with only level 0
+		   uploaded use maxLod 0 so uninitialized levels are never sampled. */
+		samplerInfo.maxLod = ( i & 4 ) ? 16.0f : 0.0f;
 		if ( i & 1 )
 		{
 			samplerInfo.magFilter = VK_FILTER_NEAREST;
@@ -1172,12 +1529,16 @@ static void VK_CreateDescriptors( void )
 			samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
 			samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
 		}
-		VK_Check( vkCreateSampler( vk.device, &samplerInfo, NULL, &vk.samplers[i] ),
-		          "vkCreateSampler" );
+		if ( !VK_Check( vkCreateSampler( vk.device, &samplerInfo, NULL, &vk.samplers[i] ),
+		                "vkCreateSampler" ) )
+		{
+			return qfalse;
+		}
 	}
+	return qtrue;
 }
 
-static void VK_CreateCommandResources( void )
+static qboolean VK_CreateCommandResources( void )
 {
 	VkCommandPoolCreateInfo poolInfo;
 	VkCommandBufferAllocateInfo bufferInfo;
@@ -1188,8 +1549,11 @@ static void VK_CreateCommandResources( void )
 	poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
 	poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
 	poolInfo.queueFamilyIndex = vk.queueFamily;
-	VK_Check( vkCreateCommandPool( vk.device, &poolInfo, NULL, &vk.commandPool ),
-	          "vkCreateCommandPool" );
+	if ( !VK_Check( vkCreateCommandPool( vk.device, &poolInfo, NULL, &vk.commandPool ),
+	                "vkCreateCommandPool" ) )
+	{
+		return qfalse;
+	}
 	vk.transientPool = vk.commandPool;
 
 	Com_Memset( &bufferInfo, 0, sizeof( bufferInfo ) );
@@ -1197,22 +1561,33 @@ static void VK_CreateCommandResources( void )
 	bufferInfo.commandPool = vk.commandPool;
 	bufferInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
 	bufferInfo.commandBufferCount = 1;
-	VK_Check( vkAllocateCommandBuffers( vk.device, &bufferInfo, &vk.commandBuffer ),
-	          "vkAllocateCommandBuffers" );
-	VK_Check( vkAllocateCommandBuffers( vk.device, &bufferInfo, &vk.transientCommand ),
-	          "vkAllocateCommandBuffers" );
+	if ( !VK_Check( vkAllocateCommandBuffers( vk.device, &bufferInfo, &vk.commandBuffer ),
+	                "vkAllocateCommandBuffers" ) ||
+	     !VK_Check( vkAllocateCommandBuffers( vk.device, &bufferInfo, &vk.transientCommand ),
+	                "vkAllocateCommandBuffers" ) )
+	{
+		return qfalse;
+	}
 
 	Com_Memset( &fenceInfo, 0, sizeof( fenceInfo ) );
 	fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
 	fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
-	VK_Check( vkCreateFence( vk.device, &fenceInfo, NULL, &vk.fence ), "vkCreateFence" );
+	if ( !VK_Check( vkCreateFence( vk.device, &fenceInfo, NULL, &vk.fence ),
+	                "vkCreateFence" ) )
+	{
+		return qfalse;
+	}
 
 	Com_Memset( &semaphoreInfo, 0, sizeof( semaphoreInfo ) );
 	semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
-	VK_Check( vkCreateSemaphore( vk.device, &semaphoreInfo, NULL, &vk.imageAvailable ),
-	          "vkCreateSemaphore" );
-	VK_Check( vkCreateSemaphore( vk.device, &semaphoreInfo, NULL, &vk.renderFinished ),
-	          "vkCreateSemaphore" );
+	if ( !VK_Check( vkCreateSemaphore( vk.device, &semaphoreInfo, NULL, &vk.imageAvailable ),
+	                "vkCreateSemaphore" ) ||
+	     !VK_Check( vkCreateSemaphore( vk.device, &semaphoreInfo, NULL, &vk.renderFinished ),
+	                "vkCreateSemaphore" ) )
+	{
+		return qfalse;
+	}
+	return qtrue;
 }
 
 static void VK_BeginRenderPass( void )
@@ -1224,7 +1599,11 @@ static void VK_BeginRenderPass( void )
 	Com_Memset( &beginInfo, 0, sizeof( beginInfo ) );
 	beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
 	beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-	VK_Check( vkBeginCommandBuffer( vk.commandBuffer, &beginInfo ), "vkBeginCommandBuffer" );
+	if ( !VK_Check( vkBeginCommandBuffer( vk.commandBuffer, &beginInfo ),
+	                "vkBeginCommandBuffer" ) )
+	{
+		return;
+	}
 	vk.recording = qtrue;
 
 	Com_Memset( &passInfo, 0, sizeof( passInfo ) );
@@ -1245,6 +1624,80 @@ static void VK_BeginRenderPass( void )
 
 	vkCmdBeginRenderPass( vk.commandBuffer, &passInfo, VK_SUBPASS_CONTENTS_INLINE );
 	vk.inRenderPass = qtrue;
+}
+
+static void VK_InvalidateAllPipelines( void );
+
+static qboolean VK_RecreateSwapchain( void )
+{
+	VkSwapchainKHR oldSwapchain = vk.swapchain;
+	uint32_t i;
+
+	if ( !vk.device || !vk.surface )
+	{
+		return qfalse;
+	}
+
+	if ( vk.inRenderPass )
+	{
+		vkCmdEndRenderPass( vk.commandBuffer );
+		vk.inRenderPass = qfalse;
+	}
+	if ( vk.recording )
+	{
+		VK_Check( vkEndCommandBuffer( vk.commandBuffer ), "vkEndCommandBuffer" );
+		vk.recording = qfalse;
+	}
+	VK_Check( vkDeviceWaitIdle( vk.device ), "vkDeviceWaitIdle" );
+
+	for ( i = 0; i < vk.numSwapImages; i++ )
+	{
+		if ( vk.swapViews[i] != VK_NULL_HANDLE )
+		{
+			vkDestroyImageView( vk.device, vk.swapViews[i], NULL );
+			vk.swapViews[i] = VK_NULL_HANDLE;
+		}
+	}
+	vk.numSwapImages = 0;
+	vk.swapchain = VK_NULL_HANDLE;
+
+	if ( vk.framebuffer != VK_NULL_HANDLE )
+	{
+		vkDestroyFramebuffer( vk.device, vk.framebuffer, NULL );
+		vk.framebuffer = VK_NULL_HANDLE;
+	}
+	if ( vk.renderPass != VK_NULL_HANDLE )
+	{
+		vkDestroyRenderPass( vk.device, vk.renderPass, NULL );
+		vk.renderPass = VK_NULL_HANDLE;
+	}
+	VK_DestroyAttachments();
+	VK_InvalidateAllPipelines();
+
+	if ( !VK_CreateSwapchain( oldSwapchain ) )
+	{
+		if ( vk.swapchain != VK_NULL_HANDLE )
+		{
+			vkDestroySwapchainKHR( vk.device, vk.swapchain, NULL );
+			vk.swapchain = VK_NULL_HANDLE;
+		}
+		if ( oldSwapchain != VK_NULL_HANDLE )
+		{
+			vkDestroySwapchainKHR( vk.device, oldSwapchain, NULL );
+		}
+		return qfalse;
+	}
+	if ( oldSwapchain != VK_NULL_HANDLE )
+	{
+		vkDestroySwapchainKHR( vk.device, oldSwapchain, NULL );
+	}
+
+	if ( !VK_CreateAttachments() || !VK_CreateRenderPass() )
+	{
+		return qfalse;
+	}
+	VK_BeginRenderPass();
+	return qtrue;
 }
 
 /* ------------------------------------------------------------------------ */
@@ -1282,9 +1735,24 @@ static VkCompareOp VK_CompareOp( int glFunc )
 	}
 }
 
+static VkCullModeFlags VK_CullMode( void )
+{
+	if ( !vk.cullFace )
+	{
+		return VK_CULL_MODE_NONE;
+	}
+	switch ( vk.cullMode )
+	{
+		case GL_FRONT:         return VK_CULL_MODE_FRONT_BIT;
+		case GL_FRONT_AND_BACK: return VK_CULL_MODE_FRONT_AND_BACK;
+		case GL_BACK:
+		default:               return VK_CULL_MODE_BACK_BIT;
+	}
+}
+
 static VkPipeline VK_GetPipeline( vkProgram_t *program, VkPrimitiveTopology topology,
                                   qboolean blend, qboolean depthTest, qboolean depthWrite,
-                                  qboolean cullBack )
+                                  VkCullModeFlags cullMode )
 {
 	VkVertexInputBindingDescription binding;
 	VkVertexInputAttributeDescription attributes[5];
@@ -1311,9 +1779,14 @@ static VkPipeline VK_GetPipeline( vkProgram_t *program, VkPrimitiveTopology topo
 	for ( i = 0; i < vk.numPipelines; i++ )
 	{
 		vkPipeline_t *cached = &vk.pipelines[i];
-		if ( cached->program == program && cached->topology == topology &&
-		     cached->blend == blend && cached->depthTest == depthTest &&
-		     cached->depthWrite == depthWrite && cached->cullBack == cullBack )
+		if ( cached->program == program && cached->generation == program->generation &&
+		     cached->topology == topology && cached->blend == blend &&
+		     cached->depthTest == depthTest && cached->depthWrite == depthWrite &&
+		     cached->cullMode == cullMode && cached->blendSrc == vk.blendSrc &&
+		     cached->blendDst == vk.blendDst && cached->depthFunc == vk.depthFunc &&
+		     cached->frontFace == vk.frontFace && cached->polygonMode == vk.polygonMode &&
+		     cached->colorMask == vk.colorMask &&
+		     cached->polygonOffset == vk.polygonOffset )
 		{
 			cached->used++;
 			return cached->pipeline;
@@ -1370,9 +1843,10 @@ static VkPipeline VK_GetPipeline( vkProgram_t *program, VkPrimitiveTopology topo
 	rasterization.rasterizerDiscardEnable = VK_FALSE;
 	rasterization.polygonMode = vk.polygonMode == GL_LINE ? VK_POLYGON_MODE_LINE
 	                                                      : VK_POLYGON_MODE_FILL;
-	rasterization.cullMode = cullBack ? VK_CULL_MODE_BACK_BIT : VK_CULL_MODE_NONE;
+	rasterization.cullMode = cullMode;
 	rasterization.frontFace = vk.frontFace == GL_CW ? VK_FRONT_FACE_CLOCKWISE
 	                                                 : VK_FRONT_FACE_COUNTER_CLOCKWISE;
+	rasterization.depthBiasEnable = vk.polygonOffset ? VK_TRUE : VK_FALSE;
 	rasterization.lineWidth = 1.0f;
 
 	Com_Memset( &multisample, 0, sizeof( multisample ) );
@@ -1389,8 +1863,7 @@ static VkPipeline VK_GetPipeline( vkProgram_t *program, VkPrimitiveTopology topo
 	depthStencil.stencilTestEnable = VK_FALSE;
 
 	Com_Memset( &colorBlendAttachment, 0, sizeof( colorBlendAttachment ) );
-	colorBlendAttachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
-	                                      VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+	colorBlendAttachment.colorWriteMask = vk.colorMask;
 	colorBlendAttachment.blendEnable = blend ? VK_TRUE : VK_FALSE;
 	colorBlendAttachment.srcColorBlendFactor = VK_BlendFactor( vk.blendSrc );
 	colorBlendAttachment.dstColorBlendFactor = VK_BlendFactor( vk.blendDst );
@@ -1438,8 +1911,12 @@ static VkPipeline VK_GetPipeline( vkProgram_t *program, VkPrimitiveTopology topo
 		pipelineInfo.renderPass = vk.renderPass;
 		pipelineInfo.subpass = 0;
 
-		VK_Check( vkCreateGraphicsPipelines( vk.device, VK_NULL_HANDLE, 1, &pipelineInfo,
-		                                     NULL, &pipeline ), "vkCreateGraphicsPipelines" );
+		if ( !VK_Check( vkCreateGraphicsPipelines( vk.device, VK_NULL_HANDLE, 1,
+		                                           &pipelineInfo, NULL, &pipeline ),
+		                "vkCreateGraphicsPipelines" ) )
+		{
+			return VK_NULL_HANDLE;
+		}
 	}
 
 	if ( vk.numPipelines < VK_MAX_PIPELINES )
@@ -1448,10 +1925,18 @@ static VkPipeline VK_GetPipeline( vkProgram_t *program, VkPrimitiveTopology topo
 		cached->program = program;
 		cached->pipeline = pipeline;
 		cached->topology = topology;
+		cached->generation = program->generation;
 		cached->blend = blend;
 		cached->depthTest = depthTest;
 		cached->depthWrite = depthWrite;
-		cached->cullBack = cullBack;
+		cached->cullMode = cullMode;
+		cached->blendSrc = vk.blendSrc;
+		cached->blendDst = vk.blendDst;
+		cached->depthFunc = vk.depthFunc;
+		cached->frontFace = vk.frontFace;
+		cached->polygonMode = vk.polygonMode;
+		cached->colorMask = vk.colorMask;
+		cached->polygonOffset = vk.polygonOffset;
 		cached->used = 1;
 	}
 	return pipeline;
@@ -1499,22 +1984,29 @@ static void VK_SetViewportState( void )
 	vkCmdSetViewport( vk.commandBuffer, 0, 1, &viewport );
 	vkCmdSetScissor( vk.commandBuffer, 0, 1, &scissor );
 	vkCmdSetLineWidth( vk.commandBuffer, vk.lineWidth > 0.0f ? vk.lineWidth : 1.0f );
+	vkCmdSetDepthBias( vk.commandBuffer,
+	                   vk.polygonOffset ? vk.polygonOffsetUnits : 0.0f,
+	                   0.0f,
+	                   vk.polygonOffset ? vk.polygonOffsetFactor : 0.0f );
 }
 
 static VkPrimitiveTopology VK_Topology( int glMode )
 {
 	switch ( glMode )
 	{
-		case GL_LINES:      return VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
-		case GL_LINE_STRIP: return VK_PRIMITIVE_TOPOLOGY_LINE_STRIP;
-		case GL_POINTS:     return VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
-		default:            return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+		case GL_LINES:           return VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
+		case GL_LINE_STRIP:      return VK_PRIMITIVE_TOPOLOGY_LINE_STRIP;
+		case GL_TRIANGLE_STRIP:  return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP;
+		case GL_POINTS:          return VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
+		default:                 return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
 	}
 }
 
 /*
  * Vulkan has no triangle fan, quad or quad strip topology.  Convert those
  * GL primitives into triangle lists while keeping winding order intact.
+ * Triangle strips need no expansion: Vulkan uses the same (n, n+1, n+2)
+ * winding as OpenGL, so they are passed straight through.
  */
 static int VK_ConvertVertices( const vkVertex_t *source, int count, int glMode,
                                vkVertex_t **destination )
@@ -1632,7 +2124,7 @@ static void VK_DrawVertices( int glMode, const vkVertex_t *vertices, int count )
 	}
 
 	pipeline = VK_GetPipeline( program, VK_Topology( glMode ), vk.blend, vk.depthTest,
-	                           vk.depthWrite, vk.cullFace && !vk.cullMode );
+	                           vk.depthWrite, VK_CullMode() );
 	if ( pipeline == VK_NULL_HANDLE )
 	{
 		if ( converted )
@@ -1660,6 +2152,7 @@ static void VK_DrawVertices( int glMode, const vkVertex_t *vertices, int count )
 	}
 
 	Com_Memcpy( vk.vertexMapped + vertexOffset, drawData, size );
+	VK_SetAlphaTestUniforms( program );
 	Com_Memcpy( vk.uniformMapped + uniformOffset, program->uboData, program->uboSize );
 
 	{
@@ -1696,7 +2189,8 @@ static void VK_DrawVertices( int glMode, const vkVertex_t *vertices, int count )
 			texture = &vk.textures[VK_WHITE_TEXTURE]; /* 1x1 white fallback */
 		}
 		imageInfo[i].sampler = vk.samplers[( texture->nearest ? 1 : 0 ) +
-		                                  ( texture->clamp ? 2 : 0 )];
+		                                  ( texture->clamp ? 2 : 0 ) +
+		                                  ( texture->mipmapped ? 4 : 0 )];
 		imageInfo[i].imageView = texture->view;
 		imageInfo[i].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 		writes[i + 1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -1738,14 +2232,16 @@ static void VK_MatrixMultiply( float *out, const float *a, const float *b )
 	float result[16];
 	int row, col, k;
 
-	for ( row = 0; row < 4; row++ )
+	/* Column-major out = a * b, matching Matrix4Multiply() in q_math.c.
+	   Callers pass the current matrix first and the modification second. */
+	for ( col = 0; col < 4; col++ )
 	{
-		for ( col = 0; col < 4; col++ )
+		for ( row = 0; row < 4; row++ )
 		{
-			result[row * 4 + col] = 0.0f;
+			result[col * 4 + row] = 0.0f;
 			for ( k = 0; k < 4; k++ )
 			{
-				result[row * 4 + col] += a[row * 4 + k] * b[k * 4 + col];
+				result[col * 4 + row] += a[k * 4 + row] * b[col * 4 + k];
 			}
 		}
 	}
@@ -1886,8 +2382,10 @@ static void VKGL_Enable( GLenum cap )
 	{
 		case GL_DEPTH_TEST:   vk.depthTest = qtrue; break;
 		case GL_BLEND:        vk.blend = qtrue; break;
+		case GL_ALPHA_TEST:   vk.alphaTest = qtrue; break;
 		case GL_CULL_FACE:    vk.cullFace = qtrue; break;
 		case GL_SCISSOR_TEST: vk.scissorEnabled = qtrue; break;
+		case GL_POLYGON_OFFSET_FILL: vk.polygonOffset = qtrue; break;
 		case GL_TEXTURE_2D:   vk.texture2D[vk.activeTexture] = qtrue; break;
 		default: break;
 	}
@@ -1899,8 +2397,10 @@ static void VKGL_Disable( GLenum cap )
 	{
 		case GL_DEPTH_TEST:   vk.depthTest = qfalse; break;
 		case GL_BLEND:        vk.blend = qfalse; break;
+		case GL_ALPHA_TEST:   vk.alphaTest = qfalse; break;
 		case GL_CULL_FACE:    vk.cullFace = qfalse; break;
 		case GL_SCISSOR_TEST: vk.scissorEnabled = qfalse; break;
+		case GL_POLYGON_OFFSET_FILL: vk.polygonOffset = qfalse; break;
 		case GL_TEXTURE_2D:   vk.texture2D[vk.activeTexture] = qfalse; break;
 		default: break;
 	}
@@ -1912,8 +2412,10 @@ static GLboolean VKGL_IsEnabled( GLenum cap )
 	{
 		case GL_DEPTH_TEST:   return vk.depthTest ? GL_TRUE : GL_FALSE;
 		case GL_BLEND:        return vk.blend ? GL_TRUE : GL_FALSE;
+		case GL_ALPHA_TEST:   return vk.alphaTest ? GL_TRUE : GL_FALSE;
 		case GL_CULL_FACE:    return vk.cullFace ? GL_TRUE : GL_FALSE;
 		case GL_SCISSOR_TEST: return vk.scissorEnabled ? GL_TRUE : GL_FALSE;
+		case GL_POLYGON_OFFSET_FILL: return vk.polygonOffset ? GL_TRUE : GL_FALSE;
 		case GL_TEXTURE_2D:   return vk.texture2D[vk.activeTexture] ? GL_TRUE : GL_FALSE;
 		default:              return GL_FALSE;
 	}
@@ -1959,7 +2461,15 @@ static void VKGL_PolygonMode( GLenum face, GLenum mode )
 
 static void VKGL_PolygonOffset( GLfloat factor, GLfloat units )
 {
-	vkCmdSetDepthBias( vk.commandBuffer, units, 0.0f, factor );
+	vk.polygonOffsetFactor = factor;
+	vk.polygonOffsetUnits = units;
+	if ( vk.inRenderPass )
+	{
+		vkCmdSetDepthBias( vk.commandBuffer,
+		                   vk.polygonOffset ? vk.polygonOffsetUnits : 0.0f,
+		                   0.0f,
+		                   vk.polygonOffset ? vk.polygonOffsetFactor : 0.0f );
+	}
 }
 
 static void VKGL_LineWidth( GLfloat width )
@@ -1969,10 +2479,11 @@ static void VKGL_LineWidth( GLfloat width )
 
 static void VKGL_ColorMask( GLboolean red, GLboolean green, GLboolean blue, GLboolean alpha )
 {
-	(void)red;
-	(void)green;
-	(void)blue;
-	(void)alpha;
+	vk.colorMask = 0;
+	if ( red )   vk.colorMask |= VK_COLOR_COMPONENT_R_BIT;
+	if ( green ) vk.colorMask |= VK_COLOR_COMPONENT_G_BIT;
+	if ( blue )  vk.colorMask |= VK_COLOR_COMPONENT_B_BIT;
+	if ( alpha ) vk.colorMask |= VK_COLOR_COMPONENT_A_BIT;
 }
 
 static void VKGL_ClearColor( GLclampf red, GLclampf green, GLclampf blue, GLclampf alpha )
@@ -2076,10 +2587,37 @@ static void VKGL_Clear( GLbitfield mask )
 	}
 
 	Com_Memset( &rect, 0, sizeof( rect ) );
-	rect.rect.offset.x = vk.viewport[0];
-	rect.rect.offset.y = vk.extent.height - vk.viewport[1] - vk.viewport[3];
-	rect.rect.extent.width = vk.viewport[2] > 0 ? vk.viewport[2] : vk.extent.width;
-	rect.rect.extent.height = vk.viewport[3] > 0 ? vk.viewport[3] : vk.extent.height;
+	if ( vk.scissorEnabled )
+	{
+		int x = vk.scissor[0] > 0 ? vk.scissor[0] : 0;
+		int y = vk.scissor[1] > 0 ? vk.scissor[1] : 0;
+		int width = vk.scissor[2];
+		int height = vk.scissor[3];
+
+		if ( width <= 0 || height <= 0 || x >= (int)vk.extent.width ||
+		     y >= (int)vk.extent.height )
+		{
+			return;
+		}
+		if ( width > (int)vk.extent.width - x )
+		{
+			width = (int)vk.extent.width - x;
+		}
+		if ( height > (int)vk.extent.height - y )
+		{
+			height = (int)vk.extent.height - y;
+		}
+		rect.rect.offset.x = x;
+		rect.rect.offset.y = vk.extent.height - y - height;
+		rect.rect.extent.width = (uint32_t)width;
+		rect.rect.extent.height = (uint32_t)height;
+	}
+	else
+	{
+		/* GL_Clear ignores the viewport; clear the whole framebuffer. */
+		rect.rect.extent.width = vk.extent.width;
+		rect.rect.extent.height = vk.extent.height;
+	}
 	rect.baseArrayLayer = 0;
 	rect.layerCount = 1;
 
@@ -2109,27 +2647,8 @@ static void VKGL_Clear( GLbitfield mask )
 
 static void VKGL_AlphaFunc( GLenum func, GLclampf ref )
 {
-	vkProgram_t *program = vk.currentProgram ? vk.currentProgram : vk.builtinProgram;
-	vkUniform_t *uniform = NULL;
-	int i;
-
-	if ( !program )
-	{
-		return;
-	}
-	for ( i = 0; i < program->numUniforms; i++ )
-	{
-		if ( !Q_stricmp( program->uniforms[i].name, "u_AlphaTest" ) )
-		{
-			uniform = &program->uniforms[i];
-			break;
-		}
-	}
-	if ( uniform )
-	{
-		Com_Memcpy( program->uboData + uniform->offset, &ref, sizeof( ref ) );
-	}
-	(void)func;
+	vk.alphaFunc = (int)func;
+	vk.alphaRef = ref;
 }
 
 static void VKGL_Fogf( GLenum pname, GLfloat param )
@@ -2238,7 +2757,8 @@ static void VKGL_GetIntegerv( GLenum pname, GLint *params )
 			*params = 32;
 			break;
 		case GL_STENCIL_BITS:
-			*params = 8;
+			/* Stencil is not implemented by this backend. */
+			*params = 0;
 			break;
 		case GL_RED_BITS:
 		case GL_GREEN_BITS:
@@ -2289,18 +2809,23 @@ static void VKGL_GetFloatv( GLenum pname, GLfloat *params )
 /* Texture uploads and framebuffer readback                                   */
 /* ------------------------------------------------------------------------ */
 
-static void VK_SubmitTransient( VkCommandBuffer command )
+static qboolean VK_SubmitTransient( VkCommandBuffer command )
 {
 	VkSubmitInfo submitInfo;
 	VkCommandBuffer commands[1] = { command };
+	qboolean ok;
 
-	VK_Check( vkEndCommandBuffer( command ), "vkEndCommandBuffer" );
+	ok = VK_Check( vkEndCommandBuffer( command ), "vkEndCommandBuffer" );
 	Com_Memset( &submitInfo, 0, sizeof( submitInfo ) );
 	submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
 	submitInfo.commandBufferCount = 1;
 	submitInfo.pCommandBuffers = commands;
-	VK_Check( vkQueueSubmit( vk.queue, 1, &submitInfo, VK_NULL_HANDLE ), "vkQueueSubmit" );
-	VK_Check( vkDeviceWaitIdle( vk.device ), "vkDeviceWaitIdle" );
+	if ( !VK_Check( vkQueueSubmit( vk.queue, 1, &submitInfo, VK_NULL_HANDLE ),
+	                "vkQueueSubmit" ) )
+	{
+		return qfalse;
+	}
+	return VK_Check( vkDeviceWaitIdle( vk.device ), "vkDeviceWaitIdle" ) && ok ? qtrue : qfalse;
 }
 
 static void VK_BeginTransient( void )
@@ -2393,11 +2918,19 @@ static void VK_UploadTexture( vkTexture_t *texture, int level, int x, int y,
                               const void *pixels )
 {
 	VkBufferImageCopy region;
+	VkImageLayout oldLayout;
+	VkAccessFlags srcAccess;
+	VkPipelineStageFlags srcStage;
 	size_t bytes = (size_t)width * height * 4;
 
-	if ( !texture->allocated || !pixels || width <= 0 || height <= 0 )
+	if ( !texture->allocated || !pixels || width <= 0 || height <= 0 ||
+	     level < 0 || level >= texture->mipLevels )
 	{
 		return;
+	}
+	if ( level > 0 )
+	{
+		texture->mipmapped = qtrue;
 	}
 	if ( bytes > vk.stagingCapacity )
 	{
@@ -2407,11 +2940,19 @@ static void VK_UploadTexture( vkTexture_t *texture, int level, int x, int y,
 
 	VK_ConvertPixels( pixels, format, type, vk.stagingMapped, width * height );
 
+	/* Subimage updates must preserve the existing contents: transitioning an
+	   already initialized image from UNDEFINED would discard the whole image. */
+	oldLayout = texture->initialized ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+	                                  : VK_IMAGE_LAYOUT_UNDEFINED;
+	srcAccess = texture->initialized ? VK_ACCESS_SHADER_READ_BIT : 0;
+	srcStage = texture->initialized ? VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT
+	                                 : VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+
 	VK_BeginTransient();
-	VK_Transition( vk.transientCommand, texture->image,
-	               VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-	               0, VK_ACCESS_TRANSFER_WRITE_BIT,
-	               VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+	VK_Transition( vk.transientCommand, texture->image, VK_IMAGE_ASPECT_COLOR_BIT,
+	               oldLayout, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+	               srcAccess, VK_ACCESS_TRANSFER_WRITE_BIT,
+	               srcStage, VK_PIPELINE_STAGE_TRANSFER_BIT,
 	               level, 1 );
 
 	Com_Memset( &region, 0, sizeof( region ) );
@@ -2431,13 +2972,17 @@ static void VK_UploadTexture( vkTexture_t *texture, int level, int x, int y,
 	vkCmdCopyBufferToImage( vk.transientCommand, vk.stagingBuffer, texture->image,
 	                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region );
 
-	VK_Transition( vk.transientCommand, texture->image,
+	VK_Transition( vk.transientCommand, texture->image, VK_IMAGE_ASPECT_COLOR_BIT,
 	               VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
 	               VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
 	               VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT,
 	               VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
 	               level, 1 );
-	VK_SubmitTransient( vk.transientCommand );
+	if ( !VK_SubmitTransient( vk.transientCommand ) )
+	{
+		return;
+	}
+	texture->initialized = qtrue;
 }
 
 static void VKGL_GenTextures( GLsizei n, GLuint *textures )
@@ -2446,12 +2991,17 @@ static void VKGL_GenTextures( GLsizei n, GLuint *textures )
 
 	for ( i = 0; i < n; i++ )
 	{
-		if ( vk.boundTextureName + 1 >= VK_MAX_TEXTURES )
+		while ( vk.nextTextureName < VK_MAX_TEXTURES &&
+		        vk.nextTextureName == VK_WHITE_TEXTURE )
+		{
+			vk.nextTextureName++;
+		}
+		if ( vk.nextTextureName >= VK_MAX_TEXTURES )
 		{
 			textures[i] = 0;
 			continue;
 		}
-		textures[i] = ++vk.boundTextureName;
+		textures[i] = vk.nextTextureName++;
 	}
 }
 
@@ -2527,16 +3077,21 @@ static void VKGL_TexImage2D( GLenum target, GLint level, GLint internalFormat,
 			mipLevels++;
 			dimension >>= 1;
 		}
-		VK_CreateImage( width, height, mipLevels, VK_FORMAT_R8G8B8A8_UNORM,
-		                VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
-		                VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
-		                &texture->image, &texture->memory );
+		if ( !VK_CreateImage( width, height, mipLevels, VK_FORMAT_R8G8B8A8_UNORM,
+		                      VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
+		                      VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+		                      &texture->image, &texture->memory ) )
+		{
+			return;
+		}
 		texture->view = VK_CreateImageView( texture->image, VK_FORMAT_R8G8B8A8_UNORM,
 		                                   mipLevels, VK_IMAGE_ASPECT_COLOR_BIT );
 		texture->width = width;
 		texture->height = height;
 		texture->mipLevels = mipLevels;
+		texture->mipmapped = qfalse;
 		texture->allocated = qtrue;
+		texture->initialized = qfalse;
 	}
 
 	VK_UploadTexture( texture, level, 0, 0, width, height, format, type, pixels );
@@ -2587,17 +3142,28 @@ static void VKGL_GetTexParameteriv( GLenum target, GLenum pname, GLint *params )
 	                                                                 : GL_LINEAR;
 }
 
-static void VK_ReadbackColor( int x, int y, int width, int height, byte *destination )
+static qboolean VK_ReadbackColor( int x, int y, int width, int height, byte *destination )
 {
 	VkBufferImageCopy region;
+	size_t bytes;
 
-	if ( !vk.colorImage || width <= 0 || height <= 0 )
+	if ( !vk.colorImage || !vk.stagingMapped || !destination || width <= 0 || height <= 0 )
 	{
-		return;
+		return qfalse;
+	}
+	if ( x < 0 || y < 0 || x + width > (int)vk.extent.width ||
+	     y + height > (int)vk.extent.height )
+	{
+		return qfalse;
+	}
+	bytes = (size_t)width * height * 4;
+	if ( bytes > vk.stagingCapacity )
+	{
+		return qfalse;
 	}
 
 	VK_BeginTransient();
-	VK_Transition( vk.transientCommand, vk.colorImage,
+	VK_Transition( vk.transientCommand, vk.colorImage, VK_IMAGE_ASPECT_COLOR_BIT,
 	               VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
 	               VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT,
 	               VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
@@ -2618,25 +3184,37 @@ static void VK_ReadbackColor( int x, int y, int width, int height, byte *destina
 	vkCmdCopyImageToBuffer( vk.transientCommand, vk.colorImage,
 	                        VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, vk.stagingBuffer,
 	                        1, &region );
-	VK_Transition( vk.transientCommand, vk.colorImage,
+	VK_Transition( vk.transientCommand, vk.colorImage, VK_IMAGE_ASPECT_COLOR_BIT,
 	               VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
 	               VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
 	               VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
 	               VK_PIPELINE_STAGE_TRANSFER_BIT,
 	               VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, 0, 1 );
-	VK_SubmitTransient( vk.transientCommand );
+	if ( !VK_SubmitTransient( vk.transientCommand ) )
+	{
+		return qfalse;
+	}
 
-	Com_Memcpy( destination, vk.stagingMapped, (size_t)width * height * 4 );
+	Com_Memcpy( destination, vk.stagingMapped, bytes );
+	return qtrue;
 }
 
 static void VKGL_ReadPixels( GLint x, GLint y, GLsizei width, GLsizei height,
                              GLenum format, GLenum type, GLvoid *pixels )
 {
-	int count = width * height;
+	size_t count;
+	size_t bytes;
+	size_t i;
 	byte *rgba;
-	int i;
+	int row, col;
+	int pixelBytes;
 
-	if ( count <= 0 )
+	if ( width <= 0 || height <= 0 || !pixels )
+	{
+		return;
+	}
+	count = (size_t)width * height;
+	if ( count > (size_t)0x7fffffff )
 	{
 		return;
 	}
@@ -2654,27 +3232,64 @@ static void VKGL_ReadPixels( GLint x, GLint y, GLsizei width, GLsizei height,
 		Com_Memset( pixels, 0, count );
 		return;
 	}
+	if ( type != GL_UNSIGNED_BYTE )
+	{
+		return;
+	}
 
-	rgba = ri.Malloc( count * 4 );
+	switch ( format )
+	{
+		case GL_RGB:
+		case GL_BGR:   pixelBytes = 3; break;
+		case GL_RGBA:
+		case GL_BGRA:  pixelBytes = 4; break;
+		default:       return;
+	}
+
+	bytes = count * 4;
+	if ( bytes > vk.stagingCapacity )
+	{
+		return;
+	}
+	rgba = ri.Malloc( bytes );
 	if ( !rgba )
 	{
 		return;
 	}
-	VK_ReadbackColor( x, y, width, height, rgba );
-
-	if ( format == GL_RGB && type == GL_UNSIGNED_BYTE )
+	/* GL ReadPixels origins are bottom-left; Vulkan images are top-left. */
+	if ( !VK_ReadbackColor( x, (int)vk.extent.height - y - height, width, height, rgba ) )
 	{
-		byte *out = pixels;
-		for ( i = 0; i < count; i++ )
-		{
-			out[i * 3 + 0] = rgba[i * 4 + 0];
-			out[i * 3 + 1] = rgba[i * 4 + 1];
-			out[i * 3 + 2] = rgba[i * 4 + 2];
-		}
+		ri.Free( rgba );
+		return;
 	}
-	else
+
+	/* Readback rows are top-down; GL ReadPixels returns bottom-up rows. */
+	for ( row = 0; row < height; row++ )
 	{
-		Com_Memcpy( pixels, rgba, count * 4 );
+		const byte *src = rgba + (size_t)row * width * 4;
+		byte *dst = (byte *)pixels + (size_t)( height - 1 - row ) * width * pixelBytes;
+
+		for ( col = 0; col < width; col++ )
+		{
+			if ( format == GL_RGB )
+			{
+				dst[0] = src[0]; dst[1] = src[1]; dst[2] = src[2];
+			}
+			else if ( format == GL_BGR )
+			{
+				dst[0] = src[2]; dst[1] = src[1]; dst[2] = src[0];
+			}
+			else if ( format == GL_BGRA )
+			{
+				dst[0] = src[2]; dst[1] = src[1]; dst[2] = src[0]; dst[3] = src[3];
+			}
+			else
+			{
+				dst[0] = src[0]; dst[1] = src[1]; dst[2] = src[2]; dst[3] = src[3];
+			}
+			src += 4;
+			dst += pixelBytes;
+		}
 	}
 	ri.Free( rgba );
 }
@@ -2694,7 +3309,11 @@ static void VKGL_CopyTexSubImage2D( GLenum target, GLint level, GLint xoffset, G
 	{
 		return;
 	}
-	VK_ReadbackColor( x, y, width, height, pixels );
+	if ( !VK_ReadbackColor( x, y, width, height, pixels ) )
+	{
+		ri.Free( pixels );
+		return;
+	}
 	VK_UploadTexture( &vk.textures[vk.boundTextureName], level, xoffset, yoffset,
 	                  width, height, GL_RGBA, GL_UNSIGNED_BYTE, pixels );
 	ri.Free( pixels );
@@ -2714,19 +3333,82 @@ typedef struct {
 
 static vkShaderObject_t vkShaders[VK_MAX_SHADERS];
 
-#define VK_SHADER_HANDLE(index) ((GLhandleARB)( (index) + 1 ))
-#define VK_SHADER_INDEX(handle) ((int)(handle) - 1)
+/* Programs and shaders must never share a handle value: qglDeleteObjectARB()
+   and qglGetObjectParameterivARB() dispatch on the handle's object kind.
+   Handle 0 is reserved for "no program" and tr_glsl.c uses program slots
+   starting at 1; builtinProgram uses slot 0 internally via a direct pointer. */
+#define VK_SHADER_BASE 0x10000u
+#define VK_PROGRAM_HANDLE(index) ((GLhandleARB)( (index) + 1 ))
+#define VK_PROGRAM_INDEX(handle) ((int)(handle) - 1)
+#define VK_SHADER_HANDLE(index) ((GLhandleARB)( VK_SHADER_BASE + (index) + 1 ))
+#define VK_SHADER_INDEX(handle) ((int)(handle) - (int)VK_SHADER_BASE - 1)
+#define VK_IS_SHADER_HANDLE(handle) \
+	( (handle) >= VK_SHADER_HANDLE( 0 ) && \
+	  (handle) < VK_SHADER_HANDLE( ARRAY_LEN( vkShaders ) - 1 ) + 1 )
 
 static vkProgram_t *VK_GetProgram( GLhandleARB handle )
 {
-	int index = VK_SHADER_INDEX( handle );
+	int index = VK_PROGRAM_INDEX( handle );
 
-	if ( index < 0 || index >= ARRAY_LEN( vk.programs ) ||
+	/* Slot 0 is the built-in program and has no exportable GL handle. */
+	if ( index < 1 || index >= ARRAY_LEN( vk.programs ) ||
 	     !vk.programs[index].name[0] )
 	{
 		return NULL;
 	}
 	return &vk.programs[index];
+}
+
+static vkShaderObject_t *VK_GetShader( GLhandleARB handle )
+{
+	int index;
+
+	if ( !VK_IS_SHADER_HANDLE( handle ) )
+	{
+		return NULL;
+	}
+	index = VK_SHADER_INDEX( handle );
+	if ( index < 0 || index >= ARRAY_LEN( vkShaders ) )
+	{
+		return NULL;
+	}
+	return &vkShaders[index];
+}
+
+static void VK_InvalidateProgramPipelines( vkProgram_t *program )
+{
+	int i;
+
+	for ( i = 0; i < vk.numPipelines; i++ )
+	{
+		if ( vk.pipelines[i].program == program )
+		{
+			if ( vk.pipelines[i].pipeline != VK_NULL_HANDLE )
+			{
+				vkDestroyPipeline( vk.device, vk.pipelines[i].pipeline, NULL );
+			}
+			vk.pipelines[i] = vk.pipelines[--vk.numPipelines];
+			i--;
+		}
+	}
+}
+
+static void VK_InvalidateAllPipelines( void )
+{
+	int i;
+
+	for ( i = 0; i < vk.numPipelines; i++ )
+	{
+		if ( vk.pipelines[i].pipeline != VK_NULL_HANDLE )
+		{
+			vkDestroyPipeline( vk.device, vk.pipelines[i].pipeline, NULL );
+		}
+	}
+	vk.numPipelines = 0;
+	for ( i = 0; i < vk.numPrograms; i++ )
+	{
+		vk.programs[i].generation++;
+	}
 }
 
 static GLhandleARB VKGL_CreateShaderObjectARB( GLenum shaderType )
@@ -2748,12 +3430,12 @@ static GLhandleARB VKGL_CreateShaderObjectARB( GLenum shaderType )
 static void VKGL_ShaderSourceARB( GLhandleARB shaderObj, GLsizei count,
                                   const GLcharARB **string, const GLint *length )
 {
-	int index = VK_SHADER_INDEX( shaderObj );
+	vkShaderObject_t *shader = VK_GetShader( shaderObj );
 	int total = 0;
 	int i;
 	char *source;
 
-	if ( index < 0 || index >= ARRAY_LEN( vkShaders ) )
+	if ( !shader )
 	{
 		return;
 	}
@@ -2786,20 +3468,21 @@ static void VKGL_ShaderSourceARB( GLhandleARB shaderObj, GLsizei count,
 			Q_strcat( source, total + 1, string[i] );
 		}
 	}
-	if ( vkShaders[index].source )
+	if ( shader->source )
 	{
-		ri.Free( vkShaders[index].source );
+		ri.Free( shader->source );
 	}
-	vkShaders[index].source = source;
+	shader->source = source;
+	shader->compiled = qfalse;
 }
 
 static void VKGL_CompileShaderARB( GLhandleARB shaderObj )
 {
-	int index = VK_SHADER_INDEX( shaderObj );
+	vkShaderObject_t *shader = VK_GetShader( shaderObj );
 
-	if ( index >= 0 && index < ARRAY_LEN( vkShaders ) && vkShaders[index].source )
+	if ( shader && shader->source )
 	{
-		vkShaders[index].compiled = qtrue;
+		shader->compiled = qtrue;
 	}
 }
 
@@ -2811,9 +3494,16 @@ static GLhandleARB VKGL_CreateProgramObjectARB( void )
 	{
 		if ( !vk.programs[i].name[0] )
 		{
+			int generation = vk.programs[i].generation;
+
 			Com_Memset( &vk.programs[i], 0, sizeof( vk.programs[i] ) );
+			vk.programs[i].generation = generation;
 			Q_strncpyz( vk.programs[i].name, "program", sizeof( vk.programs[i].name ) );
-			return VK_SHADER_HANDLE( i );
+			if ( i >= vk.numPrograms )
+			{
+				vk.numPrograms = i + 1;
+			}
+			return VK_PROGRAM_HANDLE( i );
 		}
 	}
 	return 0;
@@ -2822,46 +3512,70 @@ static GLhandleARB VKGL_CreateProgramObjectARB( void )
 static void VKGL_AttachObjectARB( GLhandleARB containerObj, GLhandleARB obj )
 {
 	vkProgram_t *program = VK_GetProgram( containerObj );
-	int index = VK_SHADER_INDEX( obj );
+	vkShaderObject_t *shader = VK_GetShader( obj );
 
-	if ( !program || index < 0 || index >= ARRAY_LEN( vkShaders ) )
+	if ( !program || !shader )
 	{
 		return;
 	}
-	if ( vkShaders[index].type == GL_VERTEX_SHADER_ARB )
+	if ( shader->type == GL_VERTEX_SHADER_ARB )
 	{
-		program->vertexModule = (VkShaderModule)(uintptr_t)( index + 1 );
+		program->vertexShader = obj;
 	}
 	else
 	{
-		program->fragmentModule = (VkShaderModule)(uintptr_t)( index + 1 );
+		program->fragmentShader = obj;
 	}
 }
 
 static void VKGL_LinkProgramARB( GLhandleARB programObj )
 {
 	vkProgram_t *program = VK_GetProgram( programObj );
-	int vertexIndex, fragmentIndex;
+	vkShaderObject_t *vertexShader, *fragmentShader;
 
 	if ( !program || program->valid )
 	{
 		return;
 	}
 
-	vertexIndex = (int)(uintptr_t)program->vertexModule - 1;
-	fragmentIndex = (int)(uintptr_t)program->fragmentModule - 1;
-	if ( vertexIndex < 0 || vertexIndex >= ARRAY_LEN( vkShaders ) ||
-	     fragmentIndex < 0 || fragmentIndex >= ARRAY_LEN( vkShaders ) ||
-	     !vkShaders[vertexIndex].source || !vkShaders[fragmentIndex].source )
+	vertexShader = VK_GetShader( program->vertexShader );
+	fragmentShader = VK_GetShader( program->fragmentShader );
+	if ( !vertexShader || !fragmentShader || !vertexShader->compiled ||
+	     !fragmentShader->compiled || !vertexShader->source ||
+	     !fragmentShader->source )
 	{
-		ri.Printf( PRINT_ALL, "Vulkan: program is missing a shader stage\n" );
+		ri.Printf( PRINT_ALL, "Vulkan: program is missing a compiled shader stage\n" );
 		return;
 	}
 
-	program->vertexModule = VK_CompileShader( vkShaders[vertexIndex].source,
-	                                          qtrue, program );
-	program->fragmentModule = VK_CompileShader( vkShaders[fragmentIndex].source,
-	                                            qfalse, program );
+	if ( program->vertexModule != VK_NULL_HANDLE )
+	{
+		vkDestroyShaderModule( vk.device, program->vertexModule, NULL );
+		program->vertexModule = VK_NULL_HANDLE;
+	}
+	if ( program->fragmentModule != VK_NULL_HANDLE )
+	{
+		vkDestroyShaderModule( vk.device, program->fragmentModule, NULL );
+		program->fragmentModule = VK_NULL_HANDLE;
+	}
+	/* Any pipeline cached for the old shader set is now stale. */
+	program->generation++;
+	VK_InvalidateProgramPipelines( program );
+	program->numUniforms = 0;
+	program->uboSize = 0;
+	Com_Memset( program->uboData, 0, sizeof( program->uboData ) );
+
+	/* Collect both stages first so the emitted UBO layout matches exactly. */
+	VK_CollectUniforms( vertexShader->source, program );
+	VK_CollectUniforms( fragmentShader->source, program );
+	if ( !VK_ValidateUniformLayout( program ) )
+	{
+		program->valid = qfalse;
+		return;
+	}
+
+	program->vertexModule = VK_CompileShader( vertexShader->source, qtrue, program );
+	program->fragmentModule = VK_CompileShader( fragmentShader->source, qfalse, program );
 	program->valid = ( program->vertexModule != VK_NULL_HANDLE &&
 	                   program->fragmentModule != VK_NULL_HANDLE ) ? qtrue : qfalse;
 }
@@ -2874,7 +3588,7 @@ static void VKGL_UseProgramObjectARB( GLhandleARB programObj )
 static void VKGL_DeleteObjectARB( GLhandleARB obj )
 {
 	vkProgram_t *program = VK_GetProgram( obj );
-	int index = VK_SHADER_INDEX( obj );
+	vkShaderObject_t *shader;
 
 	if ( program )
 	{
@@ -2890,17 +3604,26 @@ static void VKGL_DeleteObjectARB( GLhandleARB obj )
 		{
 			vkDestroyShaderModule( vk.device, program->fragmentModule, NULL );
 		}
-		Com_Memset( program, 0, sizeof( *program ) );
+		/* Cached pipelines refer to this slot: make sure a reused slot can
+		   never pick up a stale pipeline. */
+		{
+			int generation = ++program->generation;
+
+			VK_InvalidateProgramPipelines( program );
+			Com_Memset( program, 0, sizeof( *program ) );
+			program->generation = generation;
+		}
 		return;
 	}
 
-	if ( index >= 0 && index < ARRAY_LEN( vkShaders ) && vkShaders[index].source )
+	shader = VK_GetShader( obj );
+	if ( shader )
 	{
-		if ( vkShaders[index].source )
+		if ( shader->source )
 		{
-			ri.Free( vkShaders[index].source );
+			ri.Free( shader->source );
 		}
-		Com_Memset( &vkShaders[index], 0, sizeof( vkShaders[index] ) );
+		Com_Memset( shader, 0, sizeof( *shader ) );
 	}
 }
 
@@ -2954,17 +3677,24 @@ static void VKGL_Uniform1fARB( GLint location, GLfloat v0 )
 static void VKGL_Uniform1iARB( GLint location, GLint v0 )
 {
 	vkUniform_t *uniform = VK_UniformByLocation( location );
-	if ( uniform && uniform->size >= 4 )
+	vkProgram_t *program = vk.currentProgram ? vk.currentProgram : vk.builtinProgram;
+
+	if ( !uniform || !program )
 	{
-		vkProgram_t *program = vk.currentProgram ? vk.currentProgram : vk.builtinProgram;
-		GLfloat value = (GLfloat)v0;
-		if ( uniform->type == VKUNI_INT && uniform->size == 4 )
+		return;
+	}
+	if ( uniform->type == VKUNI_SAMPLER )
+	{
+		/* Opaque sampler: only the descriptor binding is meaningful. */
+		if ( v0 >= 0 && v0 < VK_NUM_SAMPLERS )
 		{
-			/* Sampler uniforms live outside the UBO; remember the unit in the
-			   sampler descriptor instead. */
 			uniform->sampler = v0;
 		}
-		Com_Memcpy( uniform->offset + program->uboData, &value, sizeof( value ) );
+		return;
+	}
+	if ( uniform->type == VKUNI_INT && uniform->size >= sizeof( v0 ) )
+	{
+		Com_Memcpy( program->uboData + uniform->offset, &v0, sizeof( v0 ) );
 	}
 }
 
@@ -3017,7 +3747,7 @@ static void VKGL_UniformMatrix4fvARB( GLint location, GLsizei count,
 static void VKGL_GetObjectParameterivARB( GLhandleARB obj, GLenum pname, GLint *params )
 {
 	vkProgram_t *program = VK_GetProgram( obj );
-	int index = VK_SHADER_INDEX( obj );
+	vkShaderObject_t *shader = VK_GetShader( obj );
 
 	switch ( pname )
 	{
@@ -3025,11 +3755,10 @@ static void VKGL_GetObjectParameterivARB( GLhandleARB obj, GLenum pname, GLint *
 			*params = program && program->valid ? 1 : 0;
 			break;
 		case GL_OBJECT_COMPILE_STATUS_ARB:
-			*params = index >= 0 && index < ARRAY_LEN( vkShaders ) &&
-			          vkShaders[index].compiled ? 1 : 0;
+			*params = shader && shader->compiled ? 1 : 0;
 			break;
 		case GL_OBJECT_INFO_LOG_LENGTH_ARB:
-			*params = 0;
+			*params = ( program || shader ) ? 1 : 0; /* empty string */
 			break;
 		default:
 			*params = 0;
@@ -3144,8 +3873,18 @@ static void VKGL_TexCoord2fv( const GLfloat *v )
 
 static void VKGL_MultiTexCoord2fARB( GLenum target, GLfloat s, GLfloat t )
 {
-	(void)target;
-	VKGL_TexCoord2f( s, t );
+	int unit = 0;
+
+	if ( target >= GL_TEXTURE0_ARB )
+	{
+		unit = target - GL_TEXTURE0_ARB;
+	}
+	if ( unit < 0 || unit >= ARRAY_LEN( vk.currentTexCoord ) )
+	{
+		return;
+	}
+	vk.currentTexCoord[unit][0] = s;
+	vk.currentTexCoord[unit][1] = t;
 }
 
 static void VKGL_ActiveTextureARB( GLenum texture )
@@ -3232,6 +3971,7 @@ static void VKGL_ArrayElement( GLint index )
 	float xyz[3] = { 0, 0, 0 };
 	float color[4] = { 1, 1, 1, 1 };
 	float tc[2] = { 0, 0 };
+	float tc1[2] = { 0, 0 };
 	float normal[3] = { 0, 0, 1 };
 
 	if ( vk.clientVertex && vk.vertexPointer )
@@ -3275,12 +4015,22 @@ static void VKGL_ArrayElement( GLint index )
 	{
 		Com_Memcpy( tc, vk.currentTexCoord[0], sizeof( tc ) );
 	}
+	if ( vk.clientTexCoord[1] && vk.texCoordPointer[1] )
+	{
+		const float *t = (const float *)VK_PointerAt( vk.texCoordPointer[1],
+		                                             vk.texCoordStride[1], index );
+		Com_Memcpy( tc1, t, sizeof( tc1 ) );
+	}
+	else
+	{
+		Com_Memcpy( tc1, vk.currentTexCoord[1], sizeof( tc1 ) );
+	}
 
 	if ( !vk.inBegin )
 	{
 		return;
 	}
-	VK_AppendVertex( xyz, color, tc, vk.currentTexCoord[1], normal );
+	VK_AppendVertex( xyz, color, tc, tc1, normal );
 }
 
 static void VKGL_DrawArrays( GLenum mode, GLint first, GLsizei count )
@@ -3366,7 +4116,20 @@ static void VKGL_DrawElements( GLenum mode, GLsizei count, GLenum type, const GL
 			                                             vk.texCoordStride[0], index );
 			Com_Memcpy( vertices[i].tc0, t, sizeof( vertices[i].tc0 ) );
 		}
-		Com_Memcpy( vertices[i].tc1, vk.currentTexCoord[1], sizeof( vertices[i].tc1 ) );
+		else
+		{
+			Com_Memcpy( vertices[i].tc0, vk.currentTexCoord[0], sizeof( vertices[i].tc0 ) );
+		}
+		if ( vk.clientTexCoord[1] && vk.texCoordPointer[1] )
+		{
+			const float *t = (const float *)VK_PointerAt( vk.texCoordPointer[1],
+			                                             vk.texCoordStride[1], index );
+			Com_Memcpy( vertices[i].tc1, t, sizeof( vertices[i].tc1 ) );
+		}
+		else
+		{
+			Com_Memcpy( vertices[i].tc1, vk.currentTexCoord[1], sizeof( vertices[i].tc1 ) );
+		}
 	}
 
 	VK_DrawVertices( mode, vertices, count );
@@ -3387,13 +4150,18 @@ static void VKGL_UnlockArraysEXT( void )
 /* Device setup, presentation and backend entry points                       */
 /* ------------------------------------------------------------------------ */
 
-static void VK_CreateBuiltinProgram( void )
+static qboolean VK_CreateBuiltinProgram( void )
 {
 	vkProgram_t *program;
 	byte white[4] = { 255, 255, 255, 255 };
 
 	program = &vk.programs[0];
+	vk.numPrograms = 1;
 	Q_strncpyz( program->name, "builtin", sizeof( program->name ) );
+	program->numUniforms = 0;
+	program->uboSize = 0;
+	VK_CollectUniforms( vkBuiltinVertexShader, program );
+	VK_CollectUniforms( vkBuiltinFragmentShader, program );
 	program->vertexModule = VK_CompileShader( vkBuiltinVertexShader, qtrue, program );
 	program->fragmentModule = VK_CompileShader( vkBuiltinFragmentShader, qfalse, program );
 	program->valid = ( program->vertexModule != VK_NULL_HANDLE &&
@@ -3401,6 +4169,7 @@ static void VK_CreateBuiltinProgram( void )
 	if ( !program->valid )
 	{
 		ri.Printf( PRINT_ALL, "Vulkan: built-in shader compilation failed.\n" );
+		return qfalse;
 	}
 	vk.builtinProgram = program;
 	vk.currentProgram = program;
@@ -3410,6 +4179,7 @@ static void VK_CreateBuiltinProgram( void )
 	VKGL_TexImage2D( GL_TEXTURE_2D, 0, GL_RGBA8, 1, 1, 0, GL_RGBA,
 	                 GL_UNSIGNED_BYTE, white );
 	vk.boundTextureName = 0;
+	return qtrue;
 }
 
 qboolean Vkqgl_Available( void )
@@ -3477,7 +4247,13 @@ qboolean Vkqgl_Init( void )
 	vk.clearDepth = 1.0f;
 	vk.lineWidth = 1.0f;
 	vk.depthFunc = GL_LESS;
+	vk.alphaFunc = GL_ALWAYS;
+	vk.cullMode = GL_BACK;
 	vk.frontFace = GL_CCW;
+	vk.polygonMode = GL_FILL;
+	vk.colorMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+	               VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+	vk.nextTextureName = 1;
 	vk.matrixMode = 0;
 	VKGL_LoadIdentity();
 	VKGL_LoadMatrixf( vkIdentity );
@@ -3642,45 +4418,60 @@ qboolean Vkqgl_Init( void )
 	}
 	vkGetDeviceQueue( vk.device, vk.queueFamily, 0, &vk.queue );
 
-	if ( !VK_FindSurfaceFormat() || !VK_CreateSwapchain() )
+	if ( !VK_FindSurfaceFormat() || !VK_CreateSwapchain( VK_NULL_HANDLE ) ||
+	     !VK_CreateAttachments() || !VK_CreateRenderPass() ||
+	     !VK_CreateDescriptors() || !VK_CreateCommandResources() )
 	{
 		Vkqgl_Shutdown();
 		return qfalse;
 	}
 
-	VK_CreateAttachments();
-	VK_CreateRenderPass();
-	VK_CreateDescriptors();
-	VK_CreateCommandResources();
-
-	VK_CreateBuffer( 16 * 1024 * 1024, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-	                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-	                 &vk.vertexBuffer, &vk.vertexMemory, (void **)&vk.vertexMapped );
+	if ( !VK_CreateBuffer( 16 * 1024 * 1024, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+	                       VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+	                       VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+	                       &vk.vertexBuffer, &vk.vertexMemory,
+	                       (void **)&vk.vertexMapped ) ||
+	     !VK_CreateBuffer( 4 * 1024 * 1024, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+	                       VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+	                       VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+	                       &vk.uniformBuffer, &vk.uniformMemory,
+	                       (void **)&vk.uniformMapped ) ||
+	     !VK_CreateBuffer( 16 * 1024 * 1024,
+	                       VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+	                       VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+	                       VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+	                       &vk.stagingBuffer, &vk.stagingMemory,
+	                       (void **)&vk.stagingMapped ) )
+	{
+		Vkqgl_Shutdown();
+		return qfalse;
+	}
 	vk.vertexCapacity = 16 * 1024 * 1024;
-	VK_CreateBuffer( 4 * 1024 * 1024, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-	                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-	                 &vk.uniformBuffer, &vk.uniformMemory, (void **)&vk.uniformMapped );
 	vk.uniformCapacity = 4 * 1024 * 1024;
-	VK_CreateBuffer( 16 * 1024 * 1024,
-	                 VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-	                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-	                 &vk.stagingBuffer, &vk.stagingMemory, (void **)&vk.stagingMapped );
 	vk.stagingCapacity = 16 * 1024 * 1024;
 
-	VK_CreateBuiltinProgram();
+	if ( !VK_CreateBuiltinProgram() )
+	{
+		Vkqgl_Shutdown();
+		return qfalse;
+	}
 
 	/* Move the attachments out of UNDEFINED before the first render pass. */
 	VK_BeginTransient();
-	VK_Transition( vk.transientCommand, vk.colorImage, VK_IMAGE_LAYOUT_UNDEFINED,
-	               VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 0,
+	VK_Transition( vk.transientCommand, vk.colorImage, VK_IMAGE_ASPECT_COLOR_BIT,
+	               VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 0,
 	               VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
 	               VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, 0, 1 );
-	VK_Transition( vk.transientCommand, vk.depthImage, VK_IMAGE_LAYOUT_UNDEFINED,
-	               VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, 0,
+	VK_Transition( vk.transientCommand, vk.depthImage, VK_IMAGE_ASPECT_DEPTH_BIT,
+	               VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, 0,
 	               VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
 	               VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
 	               VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT, 0, 1 );
-	VK_SubmitTransient( vk.transientCommand );
+	if ( !VK_SubmitTransient( vk.transientCommand ) )
+	{
+		Vkqgl_Shutdown();
+		return qfalse;
+	}
 
 	Q_strncpyz( glConfig.vendor_string, "ZEQ2-Lite", sizeof( glConfig.vendor_string ) );
 	Q_strncpyz( glConfig.renderer_string, "Vulkan translation renderer",
@@ -3696,7 +4487,7 @@ qboolean Vkqgl_Init( void )
 	glConfig.isFullscreen = ( flags & SDL_FULLSCREEN ) != 0;
 	glConfig.colorBits = 32;
 	glConfig.depthBits = 32;
-	glConfig.stencilBits = 8;
+	glConfig.stencilBits = 0;
 	glConfig.deviceSupportsGamma = qfalse;
 	glConfig.driverType = GLDRV_ICD;
 	glConfig.hardwareType = GLHW_GENERIC;
@@ -3718,28 +4509,46 @@ void Vkqgl_Present( void )
 	VkSubmitInfo submitInfo;
 	VkPresentInfoKHR presentInfo;
 	VkResult acquireResult;
+	VkResult presentResult = VK_SUCCESS;
 	uint32_t imageIndex = 0;
 	VkCommandBuffer commands[1];
 	VkSemaphore waitSemaphores[1];
 	VkSemaphore signalSemaphores[1];
 	VkPipelineStageFlags waitStages[1];
+	qboolean recreate = qfalse;
+	qboolean acquireSuboptimal = qfalse;
 
 	if ( !vk.initialized )
 	{
 		return;
 	}
 
-	VK_Check( vkWaitForFences( vk.device, 1, &vk.fence, VK_TRUE, UINT64_MAX ),
-	          "vkWaitForFences" );
-	VK_Check( vkResetFences( vk.device, 1, &vk.fence ), "vkResetFences" );
-
+	/* Acquire before touching the fence or command buffer: a failed acquire
+	   must never leave an unsignaled fence that the next frame waits on. */
 	acquireResult = vkAcquireNextImageKHR( vk.device, vk.swapchain, UINT64_MAX,
 	                                       vk.imageAvailable, VK_NULL_HANDLE, &imageIndex );
-	if ( acquireResult != VK_SUCCESS || imageIndex >= vk.numSwapImages )
+	if ( ( acquireResult != VK_SUCCESS && acquireResult != VK_SUBOPTIMAL_KHR ) ||
+	     imageIndex >= vk.numSwapImages )
+	{
+		if ( acquireResult == VK_ERROR_OUT_OF_DATE_KHR || imageIndex >= vk.numSwapImages )
+		{
+			if ( !VK_RecreateSwapchain() )
+			{
+				vk.initialized = qfalse;
+			}
+		}
+		return;
+	}
+	/* VK_SUBOPTIMAL_KHR still returns a usable image; present it once, then
+	   recreate the swapchain for the next frame. */
+	acquireSuboptimal = acquireResult == VK_SUBOPTIMAL_KHR ? qtrue : qfalse;
+	vk.swapIndex = imageIndex;
+
+	if ( !VK_Check( vkWaitForFences( vk.device, 1, &vk.fence, VK_TRUE, UINT64_MAX ),
+	                "vkWaitForFences" ) )
 	{
 		return;
 	}
-	vk.swapIndex = imageIndex;
 
 	if ( vk.inRenderPass )
 	{
@@ -3747,13 +4556,13 @@ void Vkqgl_Present( void )
 		vk.inRenderPass = qfalse;
 	}
 
-	VK_Transition( vk.commandBuffer, vk.colorImage,
+	VK_Transition( vk.commandBuffer, vk.colorImage, VK_IMAGE_ASPECT_COLOR_BIT,
 	               VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
 	               VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
 	               VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT,
 	               VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
 	               VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 1 );
-	VK_Transition( vk.commandBuffer, vk.swapImages[imageIndex],
+	VK_Transition( vk.commandBuffer, vk.swapImages[imageIndex], VK_IMAGE_ASPECT_COLOR_BIT,
 	               VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
 	               0, VK_ACCESS_TRANSFER_WRITE_BIT,
 	               VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 1 );
@@ -3772,19 +4581,24 @@ void Vkqgl_Present( void )
 		                vk.swapImages[imageIndex], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
 		                1, &copy );
 	}
-	VK_Transition( vk.commandBuffer, vk.swapImages[imageIndex],
+	VK_Transition( vk.commandBuffer, vk.swapImages[imageIndex], VK_IMAGE_ASPECT_COLOR_BIT,
 	               VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
 	               VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
 	               VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_MEMORY_READ_BIT,
 	               VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0, 1 );
-	VK_Transition( vk.commandBuffer, vk.colorImage,
+	VK_Transition( vk.commandBuffer, vk.colorImage, VK_IMAGE_ASPECT_COLOR_BIT,
 	               VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
 	               VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
 	               VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
 	               VK_PIPELINE_STAGE_TRANSFER_BIT,
 	               VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, 0, 1 );
 
-	VK_Check( vkEndCommandBuffer( vk.commandBuffer ), "vkEndCommandBuffer" );
+	if ( !VK_Check( vkEndCommandBuffer( vk.commandBuffer ), "vkEndCommandBuffer" ) )
+	{
+		vk.initialized = qfalse;
+		return;
+	}
+	vk.recording = qfalse;
 
 	commands[0] = vk.commandBuffer;
 	waitSemaphores[0] = vk.imageAvailable;
@@ -3800,7 +4614,15 @@ void Vkqgl_Present( void )
 	submitInfo.pCommandBuffers = commands;
 	submitInfo.signalSemaphoreCount = 1;
 	submitInfo.pSignalSemaphores = signalSemaphores;
-	VK_Check( vkQueueSubmit( vk.queue, 1, &submitInfo, vk.fence ), "vkQueueSubmit" );
+
+	/* Reset only after acquire and immediately before a submit that we expect
+	   to succeed; a failed submit leaves the backend shut down, not stalled. */
+	if ( !VK_Check( vkResetFences( vk.device, 1, &vk.fence ), "vkResetFences" ) ||
+	     !VK_Check( vkQueueSubmit( vk.queue, 1, &submitInfo, vk.fence ), "vkQueueSubmit" ) )
+	{
+		vk.initialized = qfalse;
+		return;
+	}
 
 	Com_Memset( &presentInfo, 0, sizeof( presentInfo ) );
 	presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
@@ -3809,14 +4631,45 @@ void Vkqgl_Present( void )
 	presentInfo.swapchainCount = 1;
 	presentInfo.pSwapchains = &vk.swapchain;
 	presentInfo.pImageIndices = &imageIndex;
-	VK_Check( vkQueuePresentKHR( vk.queue, &presentInfo ), "vkQueuePresentKHR" );
+	presentResult = vkQueuePresentKHR( vk.queue, &presentInfo );
+	if ( presentResult != VK_SUCCESS && presentResult != VK_ERROR_OUT_OF_DATE_KHR &&
+	     presentResult != VK_SUBOPTIMAL_KHR )
+	{
+		VK_Check( presentResult, "vkQueuePresentKHR" );
+	}
+
+	/* Descriptor sets and vertex/uniform data may only be reused after this
+	   frame's submit has completed, not directly after vkQueueSubmit(). */
+	if ( !VK_Check( vkWaitForFences( vk.device, 1, &vk.fence, VK_TRUE, UINT64_MAX ),
+	                "vkWaitForFences" ) )
+	{
+		vk.initialized = qfalse;
+		return;
+	}
+	recreate = acquireSuboptimal || presentResult == VK_ERROR_OUT_OF_DATE_KHR ||
+	           presentResult == VK_SUBOPTIMAL_KHR ? qtrue : qfalse;
 
 	vk.vertexUsed = 0;
 	vk.uniformUsed = 0;
 	vk.numDescriptorSets = 0;
 	VK_Check( vkResetDescriptorPool( vk.device, vk.descriptorPool, 0 ),
 	          "vkResetDescriptorPool" );
-	VK_BeginRenderPass();
+	if ( !VK_Check( vkResetCommandBuffer( vk.commandBuffer, 0 ), "vkResetCommandBuffer" ) )
+	{
+		vk.initialized = qfalse;
+		return;
+	}
+	if ( recreate )
+	{
+		if ( !VK_RecreateSwapchain() )
+		{
+			vk.initialized = qfalse;
+		}
+	}
+	else
+	{
+		VK_BeginRenderPass();
+	}
 }
 
 void Vkqgl_Shutdown( void )
@@ -3830,6 +4683,15 @@ void Vkqgl_Shutdown( void )
 	}
 	videoInitialized = vk.videoInitialized;
 	vk.initialized = qfalse;
+
+	for ( i = 0; i < ARRAY_LEN( vkShaders ); i++ )
+	{
+		if ( vkShaders[i].source )
+		{
+			ri.Free( vkShaders[i].source );
+			vkShaders[i].source = NULL;
+		}
+	}
 
 	if ( vk.device != VK_NULL_HANDLE )
 	{
@@ -4080,7 +4942,6 @@ void Vkqgl_InstallDispatch( qglFunctionPointer *table )
 	INSTALL( TexParameterf );
 	INSTALL( TexParameterfv );
 	INSTALL( TexParameteri );
-	INSTALL( TexParameterfv );
 	table[QGLFN_GetTexParameteriv].object = (void *)VKGL_GetTexParameteriv;
 	INSTALL( TexSubImage2D );
 	INSTALL( Translatef );

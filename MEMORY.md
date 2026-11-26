@@ -62,7 +62,13 @@ Run the allocator tests alone with:
 
 ```sh
 ./build.sh memory-test
+./build.sh memory-test-asan   # same tests under AddressSanitizer + UBSan
 ```
 
 They also run automatically as the first step of `./build.sh test` and
 `./build.sh all`, before the existing dedicated-server and client smoke tests.
+
+Note that `S_Malloc` uses `Z_TagMalloc` and deliberately does **not** zero its
+block; only `Z_Malloc` guarantees zeroed memory. The tests assert this
+difference so that a future change cannot silently introduce the wrong
+expectation.

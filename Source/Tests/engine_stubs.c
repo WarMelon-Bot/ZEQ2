@@ -1,92 +1,153 @@
-/* Engine symbol stubs for the standalone allocator tests. */
+/* Typed engine symbol stubs for the standalone allocator tests. */
+
+#include "q_shared.h"
+#include "qcommon.h"
+
+#define UNUSED( x ) ( (void)( x ) )
 
 int cvar_modifiedFlags;
+int c_traces;
+int c_brush_traces;
+int c_patch_traces;
+int c_pointcontents;
 
-#define TEST_STUB( name ) void name( void ) { }
-
-TEST_STUB( CL_CDDialog )
-TEST_STUB( CL_CharEvent )
-TEST_STUB( CL_Disconnect )
-TEST_STUB( CL_FlushMemory )
-TEST_STUB( CL_InitKeyCommands )
-TEST_STUB( CL_JoystickEvent )
-TEST_STUB( CL_KeyEvent )
-TEST_STUB( CL_MouseEvent )
-TEST_STUB( CL_PacketEvent )
-TEST_STUB( CL_Shutdown )
-TEST_STUB( CL_ShutdownAll )
-TEST_STUB( CL_Snd_Restart )
-TEST_STUB( CL_StartHunkUsers )
-TEST_STUB( COM_DefaultExtension )
-TEST_STUB( Cbuf_AddText )
-TEST_STUB( Cbuf_Execute )
-TEST_STUB( Cbuf_ExecuteText )
-TEST_STUB( Cbuf_Init )
-TEST_STUB( Cmd_Argc )
-TEST_STUB( Cmd_Args )
-TEST_STUB( Cmd_ArgsFrom )
-TEST_STUB( Cmd_Argv )
-TEST_STUB( Cmd_CommandCompletion )
-TEST_STUB( Cmd_CompleteArgument )
-TEST_STUB( Cmd_CompleteCfgName )
-TEST_STUB( Cmd_Init )
-TEST_STUB( Cmd_SetCommandCompletionFunc )
-TEST_STUB( Cmd_TokenizeString )
-TEST_STUB( Cmd_TokenizeStringIgnoreQuotes )
-TEST_STUB( Com_SkipCharset )
-TEST_STUB( Com_TruncateLongString )
-TEST_STUB( Com_sprintf )
-TEST_STUB( Cvar_CheckRange )
-TEST_STUB( Cvar_CommandCompletion )
-TEST_STUB( Cvar_Init )
-TEST_STUB( Cvar_Restart )
-TEST_STUB( Cvar_Set )
-TEST_STUB( Cvar_SetValue )
-TEST_STUB( Cvar_VariableString )
-TEST_STUB( Cvar_WriteVariables )
-TEST_STUB( FS_FCloseFile )
-TEST_STUB( FS_FOpenFileRead )
-TEST_STUB( FS_FOpenFileWrite )
-TEST_STUB( FS_FilenameCompletion )
-TEST_STUB( FS_ForceFlush )
-TEST_STUB( FS_InitFilesystem )
-TEST_STUB( FS_Initialized )
-TEST_STUB( FS_Printf )
-TEST_STUB( FS_PureServerSetLoadedPaks )
-TEST_STUB( FS_Read )
-TEST_STUB( FS_Restart )
-TEST_STUB( FS_Shutdown )
-TEST_STUB( FS_Write )
-TEST_STUB( Key_WriteBindings )
-TEST_STUB( MSG_Init )
-TEST_STUB( MSG_ReportChangeVectors_f )
-TEST_STUB( NET_FlushPacketQueue )
-TEST_STUB( NET_GetLoopPacket )
-TEST_STUB( Netchan_Init )
-TEST_STUB( Q_random )
-TEST_STUB( Q_strcat )
-TEST_STUB( Q_stricmp )
-TEST_STUB( Q_stricmpn )
-TEST_STUB( Q_strncpyz )
-TEST_STUB( SV_Frame )
-TEST_STUB( SV_Init )
-TEST_STUB( SV_PacketEvent )
-TEST_STUB( SV_Shutdown )
-TEST_STUB( Sys_ConsoleInput )
-TEST_STUB( Sys_GetPacket )
-TEST_STUB( Sys_GetProcessorFeatures )
-TEST_STUB( Sys_Init )
-TEST_STUB( Sys_Milliseconds )
-TEST_STUB( Sys_Quit )
-TEST_STUB( Sys_RandomBytes )
-TEST_STUB( Sys_SetEnv )
-TEST_STUB( Sys_Sleep )
-TEST_STUB( Sys_WritePIDFile )
-TEST_STUB( VM_Forced_Unload_Done )
-TEST_STUB( VM_Forced_Unload_Start )
-TEST_STUB( VM_Init )
-TEST_STUB( c_brush_traces )
-TEST_STUB( c_patch_traces )
-TEST_STUB( c_pointcontents )
-TEST_STUB( c_traces )
-TEST_STUB( va )
+void CL_CDDialog( void ) {}
+void CL_CharEvent( int key ) { UNUSED( key ); }
+void CL_Disconnect( qboolean showMainMenu ) { UNUSED( showMainMenu ); }
+void CL_FlushMemory( void ) {}
+void CL_InitKeyCommands( void ) {}
+void CL_JoystickEvent( int axis, int value, int time ) {
+	UNUSED( axis ); UNUSED( value ); UNUSED( time );
+}
+void CL_KeyEvent( int key, qboolean down, unsigned time ) {
+	UNUSED( key ); UNUSED( down ); UNUSED( time );
+}
+void CL_MouseEvent( int dx, int dy, int time ) {
+	UNUSED( dx ); UNUSED( dy ); UNUSED( time );
+}
+void CL_PacketEvent( netadr_t from, msg_t *msg ) { UNUSED( from ); UNUSED( msg ); }
+void CL_Shutdown( char *finalmsg ) { UNUSED( finalmsg ); }
+void CL_ShutdownAll( void ) {}
+void CL_Snd_Restart( void ) {}
+void CL_StartHunkUsers( qboolean rendererOnly ) { UNUSED( rendererOnly ); }
+void COM_DefaultExtension( char *path, int maxSize, const char *extension ) {
+	UNUSED( path ); UNUSED( maxSize ); UNUSED( extension );
+}
+void Cbuf_AddText( const char *text ) { UNUSED( text ); }
+void Cbuf_Execute( void ) {}
+void Cbuf_ExecuteText( int exec_when, const char *text ) {
+	UNUSED( exec_when ); UNUSED( text );
+}
+void Cbuf_Init( void ) {}
+int Cmd_Argc( void ) { return 0; }
+char *Cmd_Args( void ) { return ""; }
+char *Cmd_ArgsFrom( int arg ) { UNUSED( arg ); return ""; }
+char *Cmd_Argv( int arg ) { UNUSED( arg ); return ""; }
+void Cmd_CommandCompletion( void ( *callback )( const char *s ) ) { UNUSED( callback ); }
+void Cmd_CompleteArgument( const char *command, char *args, int argNum ) {
+	UNUSED( command ); UNUSED( args ); UNUSED( argNum );
+}
+void Cmd_CompleteCfgName( char *args, int argNum ) { UNUSED( args ); UNUSED( argNum ); }
+void Cmd_Init( void ) {}
+void Cmd_SetCommandCompletionFunc( const char *command, completionFunc_t complete ) {
+	UNUSED( command ); UNUSED( complete );
+}
+void Cmd_TokenizeString( const char *text ) { UNUSED( text ); }
+void Cmd_TokenizeStringIgnoreQuotes( const char *text_in ) { UNUSED( text_in ); }
+char *Com_SkipCharset( char *s, char *sep ) { UNUSED( sep ); return s; }
+void Com_TruncateLongString( char *buffer, const char *s ) { UNUSED( buffer ); UNUSED( s ); }
+void QDECL Com_sprintf( char *dest, int size, const char *fmt, ... ) {
+	UNUSED( dest ); UNUSED( size ); UNUSED( fmt );
+}
+void Cvar_CheckRange( cvar_t *cv, float minVal, float maxVal, qboolean shouldBeIntegral ) {
+	UNUSED( cv ); UNUSED( minVal ); UNUSED( maxVal ); UNUSED( shouldBeIntegral );
+}
+void Cvar_CommandCompletion( void ( *callback )( const char *s ) ) { UNUSED( callback ); }
+void Cvar_Init( void ) {}
+void Cvar_Restart( qboolean unsetVM ) { UNUSED( unsetVM ); }
+void Cvar_Set( const char *var_name, const char *value ) {
+	UNUSED( var_name ); UNUSED( value );
+}
+void Cvar_SetValue( const char *var_name, float value ) {
+	UNUSED( var_name ); UNUSED( value );
+}
+char *Cvar_VariableString( const char *var_name ) { UNUSED( var_name ); return ""; }
+void Cvar_WriteVariables( fileHandle_t f ) { UNUSED( f ); }
+void FS_FCloseFile( fileHandle_t f ) { UNUSED( f ); }
+int FS_FOpenFileRead( const char *qpath, fileHandle_t *file, qboolean uniqueFILE ) {
+	UNUSED( qpath ); UNUSED( file ); UNUSED( uniqueFILE );
+	return -1;
+}
+fileHandle_t FS_FOpenFileWrite( const char *qpath ) { UNUSED( qpath ); return 0; }
+void FS_FilenameCompletion( const char *dir, const char *ext, qboolean stripExt,
+	void ( *callback )( const char *s ) ) {
+	UNUSED( dir ); UNUSED( ext ); UNUSED( stripExt ); UNUSED( callback );
+}
+void FS_ForceFlush( fileHandle_t f ) { UNUSED( f ); }
+void FS_InitFilesystem( void ) {}
+qboolean FS_Initialized( void ) { return qfalse; }
+void QDECL FS_Printf( fileHandle_t f, const char *fmt, ... ) {
+	UNUSED( f ); UNUSED( fmt );
+}
+void FS_PureServerSetLoadedPaks( const char *pakSums, const char *pakNames ) {
+	UNUSED( pakSums ); UNUSED( pakNames );
+}
+int FS_Read( void *buffer, int len, fileHandle_t f ) {
+	UNUSED( buffer ); UNUSED( len ); UNUSED( f );
+	return 0;
+}
+void FS_Restart( int checksumFeed ) { UNUSED( checksumFeed ); }
+void FS_Shutdown( qboolean closemfp ) { UNUSED( closemfp ); }
+int FS_Write( const void *buffer, int len, fileHandle_t f ) {
+	UNUSED( buffer ); UNUSED( len ); UNUSED( f );
+	return 0;
+}
+void Key_WriteBindings( fileHandle_t f ) { UNUSED( f ); }
+void MSG_Init( msg_t *buf, byte *data, int length ) {
+	UNUSED( buf ); UNUSED( data ); UNUSED( length );
+}
+void MSG_ReportChangeVectors_f( void ) {}
+void NET_FlushPacketQueue( void ) {}
+qboolean NET_GetLoopPacket( netsrc_t sock, netadr_t *net_from, msg_t *net_message ) {
+	UNUSED( sock ); UNUSED( net_from ); UNUSED( net_message );
+	return qfalse;
+}
+void Netchan_Init( int qport ) { UNUSED( qport ); }
+float Q_random( int *seed ) { UNUSED( seed ); return 0.0f; }
+void Q_strcat( char *dest, int size, const char *src ) {
+	UNUSED( dest ); UNUSED( size ); UNUSED( src );
+}
+int Q_stricmp( const char *s1, const char *s2 ) { UNUSED( s1 ); UNUSED( s2 ); return 0; }
+int Q_stricmpn( const char *s1, const char *s2, int n ) {
+	UNUSED( s1 ); UNUSED( s2 ); UNUSED( n );
+	return 0;
+}
+void Q_strncpyz( char *dest, const char *src, int destsize ) {
+	UNUSED( dest ); UNUSED( src ); UNUSED( destsize );
+}
+void SV_Frame( int msec ) { UNUSED( msec ); }
+void SV_Init( void ) {}
+void SV_PacketEvent( netadr_t from, msg_t *msg ) { UNUSED( from ); UNUSED( msg ); }
+void SV_Shutdown( char *finalmsg ) { UNUSED( finalmsg ); }
+char *Sys_ConsoleInput( void ) { return NULL; }
+qboolean Sys_GetPacket( netadr_t *net_from, msg_t *net_message ) {
+	UNUSED( net_from ); UNUSED( net_message );
+	return qfalse;
+}
+cpuFeatures_t Sys_GetProcessorFeatures( void ) { return (cpuFeatures_t)0; }
+void Sys_Init( void ) {}
+int Sys_Milliseconds( void ) { return 0; }
+void Sys_Quit( void ) {}
+qboolean Sys_RandomBytes( byte *string, int len ) {
+	UNUSED( string ); UNUSED( len );
+	return qfalse;
+}
+void Sys_SetEnv( const char *name, const char *value ) {
+	UNUSED( name ); UNUSED( value );
+}
+void Sys_Sleep( int msec ) { UNUSED( msec ); }
+qboolean Sys_WritePIDFile( void ) { return qfalse; }
+void VM_Forced_Unload_Done( void ) {}
+void VM_Forced_Unload_Start( void ) {}
+void VM_Init( void ) {}
+char *QDECL va( char *format, ... ) { UNUSED( format ); return ""; }
