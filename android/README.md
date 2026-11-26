@@ -22,7 +22,7 @@ Environment overrides:
 - `ANDROID_NDK` (default `/usr/local/lib/android/sdk/ndk/27.3.13750724`)
 - `ANDROID_HOST_TAG` (default `linux-x86_64`)
 - `ANDROID_PLATFORM` / `ANDROID_BUILD_TOOLS` (defaults `android-35` / `35.0.0`)
-- `ANDROID_ABIS` (default `arm64-v8a armeabi-v7a`)
+- `ANDROID_ABIS` (default `arm64-v8a`)
 - `JOBS`
 
 The build script also builds the game QVMs with the host compiler and packages

@@ -41,7 +41,7 @@ ANDROID_NDK="${ANDROID_NDK:-/usr/local/lib/android/sdk/ndk/27.3.13750724}"
 ANDROID_HOST_TAG="${ANDROID_HOST_TAG:-linux-x86_64}"
 ANDROID_PLATFORM="${ANDROID_PLATFORM:-android-35}"
 ANDROID_BUILD_TOOLS="${ANDROID_BUILD_TOOLS:-35.0.0}"
-ANDROID_ABIS="${ANDROID_ABIS:-arm64-v8a armeabi-v7a}"
+ANDROID_ABIS="${ANDROID_ABIS:-arm64-v8a}"
 ANDROID_MIN_SDK=24
 ANDROID_TARGET_SDK=35
 
@@ -49,7 +49,7 @@ log() { printf '\033[1;32m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33mwarning:\033[0m %s\n' "$*" >&2; }
 die() { printf '\033[1;31merror:\033[0m %s\n' "$*" >&2; exit 1; }
 
-ARCH="$(uname -m | sed -e 's/i.86/i386/')"
+ARCH="$(uname -m | sed -e 's/i.86/x86_64/' -e 's/amd64/x86_64/')"
 PLATFORM="$(uname | tr '[:upper:]' '[:lower:]' | sed -e 's/_.*//')"
 RELEASE_DIR="$SOURCE_DIR/Build/Release-${PLATFORM}-${ARCH}"
 DEBUG_DIR="$SOURCE_DIR/Build/Debug-${PLATFORM}-${ARCH}"
@@ -208,7 +208,6 @@ build_win64() {
 android_abi_arch() {
     case "$1" in
         arm64-v8a)   printf 'arm64\n' ;;
-        armeabi-v7a) printf 'arm\n' ;;
         *) return 1 ;;
     esac
 }
@@ -216,7 +215,6 @@ android_abi_arch() {
 android_abi_cc() {
     case "$1" in
         arm64-v8a)   printf 'aarch64-linux-android24-clang\n' ;;
-        armeabi-v7a) printf 'armv7a-linux-androideabi24-clang\n' ;;
         *) return 1 ;;
     esac
 }
@@ -271,7 +269,6 @@ build_android() {
         mkdir -p "$stage/lib/$abi"
         case "$abi" in
             arm64-v8a)   source_so="$SOURCE_DIR/Build/Release-android-arm64/ZEQ2.arm64" ;;
-            armeabi-v7a) source_so="$SOURCE_DIR/Build/Release-android-arm/ZEQ2.arm" ;;
         esac
         [[ -f "$source_so" ]] || die "Native library was not built: $source_so"
         cp -f "$source_so" "$stage/lib/$abi/libzeq2.so"
@@ -600,7 +597,7 @@ smoke_test() {
 memory_limit_test() {
     case "$ARCH" in
         x86_64|amd64|arm64|aarch64|ppc64|ppc64le|s390x|sparc64|ia64) ;;
-        *) warn "Skipping high-memory limit test on 32-bit architecture $ARCH."
+        *) warn "Skipping high-memory limit test on unsupported architecture $ARCH."
            return 0 ;;
     esac
 

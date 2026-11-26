@@ -6,21 +6,25 @@
 
 COMPILE_PLATFORM=$(shell uname|sed -e s/_.*//|tr '[:upper:]' '[:lower:]')
 
-COMPILE_ARCH=$(shell uname -m | sed -e s/i.86/i386/)
+COMPILE_ARCH=$(shell uname -m | sed -e s/i.86/x86_64/ -e s/amd64/x86_64/)
 
 ifeq ($(COMPILE_PLATFORM),sunos)
   # Solaris uname and GNU uname differ
-  COMPILE_ARCH=$(shell uname -p | sed -e s/i.86/i386/)
+  COMPILE_ARCH=$(shell uname -p | sed -e s/i.86/x86_64/ -e s/amd64/x86_64/)
 endif
 ifeq ($(COMPILE_PLATFORM),darwin)
   # Apple does some things a little differently.  uname -p reports "arm" on
   # Apple Silicon; use the same name as the ARM64 JIT/arch selection below.
-  COMPILE_ARCH=$(shell uname -p | sed -e s/i.86/i386/ -e s/^arm$$/arm64/)
+  COMPILE_ARCH=$(shell uname -p | sed -e s/i.86/x86_64/ -e s/^arm$$/arm64/ -e s/amd64/x86_64/)
 endif
 
 ifeq ($(COMPILE_PLATFORM),mingw32)
-  ifeq ($(COMPILE_ARCH),i386)
-    COMPILE_ARCH=x86
+  # Normalize Windows arch names to x86_64 for a 64-bit-only build.
+  ifneq ($(filter i386 i486 i586 i686 x86,$(COMPILE_ARCH)),)
+    COMPILE_ARCH=x86_64
+  endif
+  ifneq ($(filter x64 amd64,$(COMPILE_ARCH)),)
+    COMPILE_ARCH=x86_64
   endif
 endif
 
@@ -68,9 +72,6 @@ PLATFORM=$(COMPILE_PLATFORM)
 endif
 export PLATFORM
 
-ifeq ($(COMPILE_ARCH),powerpc)
-  COMPILE_ARCH=ppc
-endif
 ifeq ($(COMPILE_ARCH),powerpc64)
   COMPILE_ARCH=ppc64
 endif
@@ -259,6 +260,14 @@ ifeq ($(PLATFORM),linux)
   else
   ifeq ($(ARCH),s390x)
     LIB=lib64
+  else
+  ifeq ($(ARCH),aarch64)
+    LIB=lib64
+  else
+  ifeq ($(ARCH),arm64)
+    LIB=lib64
+  endif
+  endif
   endif
   endif
   endif
@@ -302,25 +311,20 @@ ifeq ($(PLATFORM),linux)
     OPTIMIZE = $(OPTIMIZEVM) -ffast-math
     HAVE_VM_COMPILED = true
   else
-  ifeq ($(ARCH),i386)
-    OPTIMIZEVM = -O3 -march=i586 -fomit-frame-pointer \
-      -funroll-loops -falign-loops=2 -falign-jumps=2 \
-      -falign-functions=2 -fstrength-reduce
+  ifeq ($(ARCH),aarch64)
+    OPTIMIZEVM = -O3 -fomit-frame-pointer -funroll-loops
     OPTIMIZE = $(OPTIMIZEVM) -ffast-math
-    HAVE_VM_COMPILED=true
+    HAVE_VM_COMPILED = true
   else
-  ifeq ($(ARCH),ppc)
-    BASE_CFLAGS += -maltivec
-    HAVE_VM_COMPILED=true
-  endif
   ifeq ($(ARCH),ppc64)
     BASE_CFLAGS += -maltivec
     HAVE_VM_COMPILED=true
-  endif
-  ifeq ($(ARCH),sparc)
-    OPTIMIZE += -mtune=ultrasparc3 -mv8plus
-    OPTIMIZEVM += -mtune=ultrasparc3 -mv8plus
+  else
+  ifeq ($(ARCH),sparc64)
+    OPTIMIZE += -mtune=ultrasparc3 -mv9
+    OPTIMIZEVM += -mtune=ultrasparc3 -mv9
     HAVE_VM_COMPILED=true
+  endif
   endif
   endif
   endif
@@ -363,14 +367,7 @@ ifeq ($(PLATFORM),linux)
     CLIENT_CFLAGS += -I$(SDLHDIR)/include
   endif
 
-  ifeq ($(ARCH),i386)
-    # linux32 make ...
-    BASE_CFLAGS += -m32
-  else
-  ifeq ($(ARCH),ppc64)
-    BASE_CFLAGS += -m64
-  endif
-  endif
+  # 64-bit-only build: do not add -m32 fallbacks.
 else # ifeq Linux
 
 #############################################################################
@@ -378,12 +375,15 @@ else # ifeq Linux
 #############################################################################
 
 ifeq ($(PLATFORM),darwin)
-  # There is no ARM64 JIT backend yet; use the portable interpreter there.
-  # x86 and x86_64 (and ppc) keep the compiled VM.
+  # 64-bit-only build: x86_64 uses the JIT; arm64 uses the interpreter.
   ifneq ($(filter arm64 aarch64,$(ARCH)),)
     HAVE_VM_COMPILED=false
   else
+  ifeq ($(ARCH),x86_64)
     HAVE_VM_COMPILED=true
+  else
+    HAVE_VM_COMPILED=false
+  endif
   endif
   LIBS = -framework Cocoa
   CLIENT_LIBS=
@@ -393,18 +393,8 @@ ifeq ($(PLATFORM),darwin)
   CLIENT_CFLAGS = 
   SERVER_CFLAGS =
 
-  ifeq ($(ARCH),ppc)
-    BASE_CFLAGS += -faltivec
-    OPTIMIZEVM += -O3
-  endif
   ifeq ($(ARCH),ppc64)
     BASE_CFLAGS += -faltivec
-  endif
-  ifeq ($(ARCH),i386)
-    OPTIMIZEVM += -march=prescott -mfpmath=sse
-    # x86 vm will crash without -mstackrealign since MMX instructions will be
-    # used no matter what and they corrupt the frame pointer in VM calls
-    BASE_CFLAGS += -mstackrealign
   endif
 
   BASE_CFLAGS += -fno-strict-aliasing -DMACOS_X -fno-common -pipe
@@ -524,22 +514,16 @@ ifeq ($(PLATFORM),mingw32)
       BASE_CFLAGS += $(OGG_CFLAGS)
   endif
 
-  # uname reports x86_64 on 64-bit MinGW, while older Windows build scripts
-  # use x64.  Treat both names identically so the x86-64 JIT is compiled and
-  # linked instead of leaving VM_Compile/VM_CallCompiled unresolved.
+  # 64-bit-only Windows build. Normalize x64/amd64 to x86_64 JIT.
   ifneq ($(filter x64 x86_64 amd64,$(ARCH)),)
     OPTIMIZEVM = -O3 -fno-omit-frame-pointer \
       -falign-loops=2 -funroll-loops -falign-jumps=2 -falign-functions=2 \
       -fstrength-reduce
     OPTIMIZE = $(OPTIMIZEVM) -ffast-math
     HAVE_VM_COMPILED = true
-  endif
-  ifeq ($(ARCH),x86)
-    OPTIMIZEVM = -O3 -march=i586 -fno-omit-frame-pointer \
-      -falign-loops=2 -funroll-loops -falign-jumps=2 -falign-functions=2 \
-      -fstrength-reduce
-    OPTIMIZE = $(OPTIMIZEVM) -ffast-math
-    HAVE_VM_COMPILED = true
+  else
+    HAVE_VM_COMPILED = false
+    BASE_CFLAGS += -DNO_VM_COMPILED
   endif
 
   SHLIBEXT=dll
@@ -558,11 +542,7 @@ ifeq ($(PLATFORM),mingw32)
     ifneq ($(USE_CURL_DLOPEN),1)
       ifeq ($(USE_LOCAL_HEADERS),1)
         CLIENT_CFLAGS += -DCURL_STATICLIB
-        ifneq ($(filter x64 x86_64 amd64,$(ARCH)),)
-          CLIENT_LIBS += $(LIBSDIR)/win64/libcurl.a
-        else
-          CLIENT_LIBS += $(LIBSDIR)/win32/libcurl.a
-        endif
+        CLIENT_LIBS += $(LIBSDIR)/win64/libcurl.a
       else
         CLIENT_LIBS += $(CURL_LIBS)
       endif
@@ -571,42 +551,25 @@ ifeq ($(PLATFORM),mingw32)
 
   ifeq ($(USE_CODEC_VORBIS),1)
     ifeq ($(USE_LOCAL_HEADERS),1)
-      ifneq ($(filter x64 x86_64 amd64,$(ARCH)),)
-        CLIENT_LIBS += \
-          $(LIBSDIR)/win64/libvorbisfile.a \
-          $(LIBSDIR)/win64/libvorbis.a \
-          $(LIBSDIR)/win64/libogg.a
-      else
-        CLIENT_LIBS += \
-          $(LIBSDIR)/win32/libvorbisfile.a \
-          $(LIBSDIR)/win32/libvorbis.a \
-          $(LIBSDIR)/win32/libogg.a
-      endif
+      CLIENT_LIBS += \
+        $(LIBSDIR)/win64/libvorbisfile.a \
+        $(LIBSDIR)/win64/libvorbis.a \
+        $(LIBSDIR)/win64/libogg.a
     else
       CLIENT_LIBS += $(OGG_LIBS)
     endif
   endif
   endif
 
-  ifeq ($(ARCH),x86)
-    # build 32bit
-    BASE_CFLAGS += -m32
-  else
-    BASE_CFLAGS += -m64
-  endif
+  BASE_CFLAGS += -m64
 
   # libmingw32 must be linked before libSDLmain
   CLIENT_LIBS += -lmingw32
   ifeq ($(USE_LOCAL_HEADERS),1)
     CLIENT_CFLAGS += -I$(SDLHDIR)/include
-    ifeq ($(ARCH), x86)
-    CLIENT_LIBS += $(LIBSDIR)/win32/libSDLmain.a \
-                      $(LIBSDIR)/win32/libSDL.dll.a
-    else
     CLIENT_LIBS += $(LIBSDIR)/win64/libSDLmain.a \
                       $(LIBSDIR)/win64/libSDL.dll.a \
                       $(LIBSDIR)/win64/libSDL.a
-    endif
   else
     CLIENT_CFLAGS += $(SDL_CFLAGS)
     CLIENT_LIBS += $(SDL_LIBS)
@@ -671,11 +634,6 @@ ifeq ($(PLATFORM),freebsd)
   endif
 
   # cross-compiling tweaks
-  ifeq ($(ARCH),i386)
-    ifeq ($(CROSS_COMPILING),1)
-      BASE_CFLAGS += -m32
-    endif
-  endif
   ifeq ($(ARCH),amd64)
     ifeq ($(CROSS_COMPILING),1)
       BASE_CFLAGS += -m64
@@ -690,8 +648,8 @@ else # ifeq freebsd
 
 ifeq ($(PLATFORM),openbsd)
 
-  #default to i386, no tests done on anything else
-  ARCH=i386
+  # 64-bit-only build: default to amd64 on OpenBSD.
+  ARCH=amd64
 
   BASE_CFLAGS = -Wall -fno-strict-aliasing -Wimplicit -Wstrict-prototypes \
     -DUSE_ICON
@@ -714,8 +672,12 @@ ifeq ($(PLATFORM),openbsd)
     USE_CURL_DLOPEN=0
   endif
 
-  BASE_CFLAGS += -DNO_VM_COMPILED
-  HAVE_VM_COMPILED=false
+  ifeq ($(ARCH),amd64)
+    HAVE_VM_COMPILED=true
+  else
+    BASE_CFLAGS += -DNO_VM_COMPILED
+    HAVE_VM_COMPILED=false
+  endif
 
   SHLIBEXT=so
   SHLIBNAME=.$(SHLIBEXT)
@@ -753,8 +715,9 @@ else # ifeq openbsd
 
 ifeq ($(PLATFORM),netbsd)
 
-  ifeq ($(shell uname -m),i386)
-    ARCH=i386
+  # 64-bit-only: normalize any 32-bit uname to amd64.
+  ifneq ($(filter i386 i486 i586 i686 x86,$(shell uname -m)),)
+    ARCH=amd64
   endif
 
   LIBS=-lm
@@ -767,8 +730,10 @@ ifeq ($(PLATFORM),netbsd)
   CLIENT_CFLAGS =
   SERVER_CFLAGS =
 
-  ifneq ($(ARCH),i386)
-    BASE_CFLAGS += -DNO_VM_COMPILED
+  ifneq ($(ARCH),x86_64)
+    ifneq ($(ARCH),amd64)
+      BASE_CFLAGS += -DNO_VM_COMPILED
+    endif
   endif
 
   BUILD_CLIENT = 0
@@ -815,13 +780,13 @@ ifeq ($(PLATFORM),sunos)
   COPYDIR="/usr/local/share/games/zeq2lite"
 
   ifneq (,$(findstring i86pc,$(shell uname -m)))
-    ARCH=i386
-  else #default to sparc
-    ARCH=sparc
+    ARCH=x86_64
+  else #default to sparc64
+    ARCH=sparc64
   endif
 
-  ifneq ($(ARCH),i386)
-    ifneq ($(ARCH),sparc)
+  ifneq ($(ARCH),x86_64)
+    ifneq ($(ARCH),sparc64)
       $(error arch $(ARCH) is currently not supported)
     endif
   endif
@@ -833,18 +798,18 @@ ifeq ($(PLATFORM),sunos)
 
   OPTIMIZEVM = -O3 -funroll-loops
 
-  ifeq ($(ARCH),sparc)
+  ifeq ($(ARCH),sparc64)
     OPTIMIZEVM += -O3 \
       -fstrength-reduce -falign-functions=2 \
-      -mtune=ultrasparc3 -mv8plus -mno-faster-structs
+      -mtune=ultrasparc3 -mv9 -mno-faster-structs
     HAVE_VM_COMPILED=true
   else
-  ifeq ($(ARCH),i386)
-    OPTIMIZEVM += -march=i586 -fomit-frame-pointer \
+  ifeq ($(ARCH),x86_64)
+    OPTIMIZEVM += -fomit-frame-pointer \
       -falign-loops=2 -falign-jumps=2 \
       -falign-functions=2 -fstrength-reduce
     HAVE_VM_COMPILED=true
-    BASE_CFLAGS += -m32
+    BASE_CFLAGS += -m64
     CLIENT_CFLAGS += -I/usr/X11/include/NVIDIA
     CLIENT_LDFLAGS += -L/usr/X11/lib/NVIDIA -R/usr/X11/lib/NVIDIA
   endif
@@ -900,7 +865,7 @@ ifeq ($(PLATFORM),android)
   USE_VOIP = 0
 
   BASE_CFLAGS = -Wall -fno-strict-aliasing -Wimplicit -Wstrict-prototypes \
-    -pipe -fPIC -DANDROID -DNO_VM_COMPILED \
+    -pipe -fPIC -DANDROID \
     -I$(ANDROID_JNI) -I$(ANDROID_NDK)/sources/android/native_app_glue
   CLIENT_CFLAGS =
   SERVER_CFLAGS =
@@ -908,6 +873,16 @@ ifeq ($(PLATFORM),android)
 
   OPTIMIZEVM = -O2 -fomit-frame-pointer
   OPTIMIZE = $(OPTIMIZEVM) -ffast-math
+
+  # Android/arm64 currently uses the interpreter; qvms are 32-bit bytecode
+  # and run under the 64-bit host VM interpreter/JIT as supported.
+  ifneq ($(filter arm64 aarch64,$(ARCH)),)
+    BASE_CFLAGS += -DNO_VM_COMPILED
+    HAVE_VM_COMPILED = false
+  else
+    BASE_CFLAGS += -DNO_VM_COMPILED
+    HAVE_VM_COMPILED = false
+  endif
 
   SHLIBEXT=so
   SHLIBCFLAGS=-fPIC
@@ -1510,20 +1485,7 @@ endif
   $(B)/client/con_log.o \
   $(B)/client/sys_main.o
 
-ifeq ($(ARCH),i386)
-  Q3OBJ += \
-    $(B)/client/snd_mixa.o \
-    $(B)/client/matha.o \
-    $(B)/client/ftola.o \
-    $(B)/client/snapvectora.o
-endif
-ifeq ($(ARCH),x86)
-  Q3OBJ += \
-    $(B)/client/snd_mixa.o \
-    $(B)/client/matha.o \
-    $(B)/client/ftola.o \
-    $(B)/client/snapvectora.o
-endif
+# 32-bit x86 asm objects removed for 64-bit-only build.
 
 ifeq ($(USE_VOIP),1)
 ifeq ($(USE_INTERNAL_SPEEX),1)
@@ -1582,28 +1544,13 @@ Q3OBJ += \
 endif
 
 ifeq ($(HAVE_VM_COMPILED),true)
-  ifeq ($(ARCH),i386)
-    Q3OBJ += $(B)/client/vm_x86.o
-  endif
-  ifeq ($(ARCH),x86)
-    Q3OBJ += $(B)/client/vm_x86.o
-  endif
-  ifeq ($(ARCH),x86_64)
+  ifneq ($(filter x86_64 amd64 x64,$(ARCH)),)
     Q3OBJ += $(B)/client/vm_x86_64.o $(B)/client/vm_x86_64_assembler.o
   endif
-  ifeq ($(ARCH),amd64)
-    Q3OBJ += $(B)/client/vm_x86_64.o $(B)/client/vm_x86_64_assembler.o
-  endif
-  ifeq ($(ARCH),x64)
-    Q3OBJ += $(B)/client/vm_x86_64.o $(B)/client/vm_x86_64_assembler.o
-  endif
-  ifeq ($(ARCH),ppc)
+  ifneq ($(filter ppc64,$(ARCH)),)
     Q3OBJ += $(B)/client/vm_powerpc.o $(B)/client/vm_powerpc_asm.o
   endif
-  ifeq ($(ARCH),ppc64)
-    Q3OBJ += $(B)/client/vm_powerpc.o $(B)/client/vm_powerpc_asm.o
-  endif
-  ifeq ($(ARCH),sparc)
+  ifneq ($(filter sparc64,$(ARCH)),)
     Q3OBJ += $(B)/client/vm_sparc.o
   endif
 endif
@@ -1751,18 +1698,7 @@ Q3DOBJ = \
   $(B)/ded/con_log.o \
   $(B)/ded/sys_main.o
 
-ifeq ($(ARCH),i386)
-  Q3DOBJ += \
-      $(B)/ded/ftola.o \
-      $(B)/ded/snapvectora.o \
-      $(B)/ded/matha.o
-endif
-ifeq ($(ARCH),x86)
-  Q3DOBJ += \
-      $(B)/ded/ftola.o \
-      $(B)/ded/snapvectora.o \
-      $(B)/ded/matha.o
-endif
+# 32-bit x86 asm objects removed for 64-bit-only build.
 
 ifeq ($(USE_INTERNAL_ZLIB),1)
 Q3DOBJ += \
@@ -1775,28 +1711,13 @@ Q3DOBJ += \
 endif
 
 ifeq ($(HAVE_VM_COMPILED),true)
-  ifeq ($(ARCH),i386)
-    Q3DOBJ += $(B)/ded/vm_x86.o
-  endif
-  ifeq ($(ARCH),x86)
-    Q3DOBJ += $(B)/ded/vm_x86.o
-  endif
-  ifeq ($(ARCH),x86_64)
+  ifneq ($(filter x86_64 amd64 x64,$(ARCH)),)
     Q3DOBJ += $(B)/ded/vm_x86_64.o $(B)/ded/vm_x86_64_assembler.o
   endif
-  ifeq ($(ARCH),amd64)
-    Q3DOBJ += $(B)/ded/vm_x86_64.o $(B)/ded/vm_x86_64_assembler.o
-  endif
-  ifeq ($(ARCH),x64)
-    Q3DOBJ += $(B)/ded/vm_x86_64.o $(B)/ded/vm_x86_64_assembler.o
-  endif
-  ifeq ($(ARCH),ppc)
+  ifneq ($(filter ppc64,$(ARCH)),)
     Q3DOBJ += $(B)/ded/vm_powerpc.o $(B)/ded/vm_powerpc_asm.o
   endif
-  ifeq ($(ARCH),ppc64)
-    Q3DOBJ += $(B)/ded/vm_powerpc.o $(B)/ded/vm_powerpc_asm.o
-  endif
-  ifeq ($(ARCH),sparc)
+  ifneq ($(filter sparc64,$(ARCH)),)
     Q3DOBJ += $(B)/ded/vm_sparc.o
   endif
 endif

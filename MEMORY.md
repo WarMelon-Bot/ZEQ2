@@ -25,8 +25,9 @@ compatible.
   region with `calloc`; `Z_ClearZone` only initializes bookkeeping. The raw
   pointer is retained so reinitialization cannot leak or free an aligned
   interior pointer.
-* `com_zoneMegs` is clamped to 1 GiB on 32-bit builds. Full 64-bit builds use a
-  `size_t`-derived ceiling and can configure multi-gigabyte zones.
+* `com_zoneMegs` is clamped to a `size_t`-derived ceiling on 64-bit builds and
+  can configure multi-gigabyte zones. Legacy 32-bit build fallbacks were
+  removed; the build targets 64-bit architectures.
 
 ## Hunk allocator
 
@@ -35,9 +36,9 @@ compatible.
 * The arena is allocated with `malloc`; pages are committed as they are used
   rather than by touching 512 MB up front. `Hunk_Alloc` still zeroes the bytes
   it hands out.
-* `com_hunkMegs` is clamped to 4 GiB on 32-bit builds. Full 64-bit builds lift
-  that cap to the cvar range and check for overflow before the byte count is
-  computed.
+* `com_hunkMegs` is clamped to the cvar range on 64-bit builds and checks for
+  overflow before the byte count is computed. Legacy 32-bit build fallbacks were
+  removed; the build targets 64-bit architectures.
 * Capacity checks use the high-water value of each bank (`temp` or
   `permanent`, whichever is larger) instead of only `permanent`, preventing
   temporary allocations from overwriting live data.
@@ -51,10 +52,10 @@ compatible.
 ## 64-bit builds
 
 `Q3_64BIT` in `Source/Shared/q_platform.h` is the single source of truth for
-pointer width. It is zero for QVM and 32-bit targets and one for Win64, LP64
-Unix, arm64, ppc64, and the other 64-bit architectures supported by the engine.
-It also drives the `playerState_t` VM padding so native and bytecode modules
-keep identical shared structure offsets.
+pointer width. QVM remains 32-bit by definition, while native engine builds are
+64-bit-only (Win64, LP64 Unix, arm64, ppc64, and other supported 64-bit
+architectures). It also drives the `playerState_t` VM padding so native and
+bytecode modules keep identical shared structure offsets.
 
 On 64-bit builds both arenas use `size_t` totals, and the old 1 GiB/4 GiB cvar
 ceilings are lifted. Individual allocation APIs remain `int`-based for source
@@ -75,14 +76,15 @@ The cross-platform build matrix is exercised by:
 ```sh
 ./build.sh release       # native 64-bit client, server, modules and QVMs
 ./build.sh win64         # Windows x64 server and native modules
-./build.sh android       # Android arm64/armv7a client and packaged QVMs
+./build.sh android       # Android arm64 client and packaged QVMs
 ./build.sh test          # allocator + smoke tests
 ./build.sh warnings      # warning-free release/debug rebuild
 ```
 
-MSVC x64 projects use the portable VM interpreter (`NO_VM_COMPILED`); the
-32-bit x86 JIT is excluded there. macOS arm64 likewise falls back to the
-interpreter until an arm64 JIT backend exists.
+The build is 64-bit-only: legacy 32-bit x86 JIT/asm fallbacks were removed.
+MSVC x64 projects can still use the portable VM interpreter (`NO_VM_COMPILED`);
+macOS arm64 likewise falls back to the interpreter until an arm64 JIT backend
+exists. QVM bytecode remains 32-bit by format and is loaded by 64-bit hosts.
 
 ## Tests
 
