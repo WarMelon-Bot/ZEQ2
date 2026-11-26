@@ -671,7 +671,6 @@
     <ClInclude Include="..\..\Game\Game\g_local.h" />
     <ClInclude Include="..\..\Game\Game\g_public.h" />
     <ClInclude Include="..\..\Game\Game\g_team.h" />
-    <ClInclude Include="..\..\Game\Game\match.h" />
     <ClInclude Include="..\..\Shared\q_shared.h" />
     <ClInclude Include="..\..\Shared\surfaceflags.h" />
   </ItemGroup>

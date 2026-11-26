@@ -146,6 +146,7 @@ void Sys_SetEnv( const char *name, const char *value ) {
 	UNUSED( name ); UNUSED( value );
 }
 void Sys_Sleep( int msec ) { UNUSED( msec ); }
+void Sys_Yield( void ) {}
 qboolean Sys_WritePIDFile( void ) { return qfalse; }
 void VM_Forced_Unload_Done( void ) {}
 void VM_Forced_Unload_Start( void ) {}

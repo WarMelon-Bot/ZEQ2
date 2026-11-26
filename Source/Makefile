@@ -172,7 +172,6 @@ ASMDIR=Engine/asm
 SYSDIR=Engine/sys
 GDIR=Game/Game
 CGDIR=Game/CGame
-BLIBDIR=Engine/botlib
 NDIR=Engine/null
 UIDIR=Game/UI
 JPDIR=Engine/jpeg-6b
@@ -296,9 +295,10 @@ ifeq ($(PLATFORM),linux)
   OPTIMIZE = $(OPTIMIZEVM) -ffast-math
 
   ifeq ($(ARCH),x86_64)
-    OPTIMIZEVM = -O3 -fomit-frame-pointer -funroll-loops \
-      -falign-loops=2 -falign-jumps=2 -falign-functions=2 \
-      -fstrength-reduce
+    # Modern x86-64: let the compiler choose alignments and use its current
+    # strength-reduction passes.  MARCH=native (via the CLI) can add ISA
+    # specific tuning without making the default binary less portable.
+    OPTIMIZEVM = -O3 -fomit-frame-pointer -funroll-loops -mtune=generic
     OPTIMIZE = $(OPTIMIZEVM) -ffast-math
     HAVE_VM_COMPILED = true
   else
@@ -863,8 +863,6 @@ ifeq ($(PLATFORM),sunos)
   THREAD_LIBS=-lpthread
   LIBS=-lsocket -lnsl -ldl -lm
 
-  BOTCFLAGS=-O0
-
   CLIENT_LIBS +=$(SDL_LIBS) -lGL -lX11 -lXext -liconv -lm
 
 else # ifeq sunos
@@ -1027,6 +1025,14 @@ endif
 BASE_CFLAGS += -std=gnu17
 BASE_CFLAGS += -DPRODUCT_VERSION=\\\"$(VERSION)\\\"
 
+# Optional tuning for the machine that runs the build:
+#   make MARCH=native release
+# The defaults stay portable; only explicit requests change code generation.
+ifneq ($(strip $(MARCH)),)
+  OPTIMIZE += -march=$(MARCH)
+  OPTIMIZEVM += -march=$(MARCH)
+endif
+
 ifeq ($(V),1)
 echo_cmd=@:
 Q=
@@ -1043,11 +1049,6 @@ endef
 define DO_SMP_CC
 $(echo_cmd) "SMP_CC $<"
 $(Q)$(CC) $(NOTSHLIBCFLAGS) $(CFLAGS) $(CLIENT_CFLAGS) $(OPTIMIZE) -DSMP -o $@ -c $<
-endef
-
-define DO_BOT_CC
-$(echo_cmd) "BOT_CC $<"
-$(Q)$(CC) $(NOTSHLIBCFLAGS) $(CFLAGS) $(BOTCFLAGS) $(OPTIMIZE) -DBOTLIB -o $@ -c $<
 endef
 
 ifeq ($(GENERATE_DEPENDENCIES),1)
@@ -1403,7 +1404,6 @@ Q3OBJ = \
   \
   $(B)/client/cl_curl.o \
   \
-  $(B)/client/sv_bot.o \
   $(B)/client/sv_ccmds.o \
   $(B)/client/sv_client.o \
   $(B)/client/sv_game.o \
@@ -1421,35 +1421,6 @@ Q3OBJ = \
   $(B)/client/puff.o \
   $(B)/client/vm.o \
   $(B)/client/vm_interpreted.o \
-  \
-  $(B)/client/be_aas_bspq3.o \
-  $(B)/client/be_aas_cluster.o \
-  $(B)/client/be_aas_debug.o \
-  $(B)/client/be_aas_entity.o \
-  $(B)/client/be_aas_file.o \
-  $(B)/client/be_aas_main.o \
-  $(B)/client/be_aas_move.o \
-  $(B)/client/be_aas_optimize.o \
-  $(B)/client/be_aas_reach.o \
-  $(B)/client/be_aas_route.o \
-  $(B)/client/be_aas_routealt.o \
-  $(B)/client/be_aas_sample.o \
-  $(B)/client/be_ai_char.o \
-  $(B)/client/be_ai_chat.o \
-  $(B)/client/be_ai_gen.o \
-  $(B)/client/be_ai_goal.o \
-  $(B)/client/be_ai_move.o \
-  $(B)/client/be_ai_weap.o \
-  $(B)/client/be_ai_weight.o \
-  $(B)/client/be_ea.o \
-  $(B)/client/be_interface.o \
-  $(B)/client/l_crc.o \
-  $(B)/client/l_libvar.o \
-  $(B)/client/l_log.o \
-  $(B)/client/l_memory.o \
-  $(B)/client/l_precomp.o \
-  $(B)/client/l_script.o \
-  $(B)/client/l_struct.o \
   \
   $(B)/client/jcapimin.o \
   $(B)/client/jcapistd.o \
@@ -1741,7 +1712,6 @@ endif
 #############################################################################
 
 Q3DOBJ = \
-  $(B)/ded/sv_bot.o \
   $(B)/ded/sv_client.o \
   $(B)/ded/sv_ccmds.o \
   $(B)/ded/sv_game.o \
@@ -1773,35 +1743,6 @@ Q3DOBJ = \
   $(B)/ded/ioapi.o \
   $(B)/ded/vm.o \
   $(B)/ded/vm_interpreted.o \
-  \
-  $(B)/ded/be_aas_bspq3.o \
-  $(B)/ded/be_aas_cluster.o \
-  $(B)/ded/be_aas_debug.o \
-  $(B)/ded/be_aas_entity.o \
-  $(B)/ded/be_aas_file.o \
-  $(B)/ded/be_aas_main.o \
-  $(B)/ded/be_aas_move.o \
-  $(B)/ded/be_aas_optimize.o \
-  $(B)/ded/be_aas_reach.o \
-  $(B)/ded/be_aas_route.o \
-  $(B)/ded/be_aas_routealt.o \
-  $(B)/ded/be_aas_sample.o \
-  $(B)/ded/be_ai_char.o \
-  $(B)/ded/be_ai_chat.o \
-  $(B)/ded/be_ai_gen.o \
-  $(B)/ded/be_ai_goal.o \
-  $(B)/ded/be_ai_move.o \
-  $(B)/ded/be_ai_weap.o \
-  $(B)/ded/be_ai_weight.o \
-  $(B)/ded/be_ea.o \
-  $(B)/ded/be_interface.o \
-  $(B)/ded/l_crc.o \
-  $(B)/ded/l_libvar.o \
-  $(B)/ded/l_log.o \
-  $(B)/ded/l_memory.o \
-  $(B)/ded/l_precomp.o \
-  $(B)/ded/l_script.o \
-  $(B)/ded/l_struct.o \
   \
   $(B)/ded/null_client.o \
   $(B)/ded/null_input.o \
@@ -2066,9 +2007,6 @@ $(B)/client/%.o: $(SDIR)/%.c
 $(B)/client/%.o: $(CMDIR)/%.c
 	$(DO_CC)
 
-$(B)/client/%.o: $(BLIBDIR)/%.c
-	$(DO_BOT_CC)
-
 $(B)/client/%.o: $(JPDIR)/%.c
 	$(DO_CC)
 
@@ -2117,9 +2055,6 @@ $(B)/ded/%.o: $(CMDIR)/%.c
 
 $(B)/ded/%.o: $(ZDIR)/%.c
 	$(DO_DED_CC)
-
-$(B)/ded/%.o: $(BLIBDIR)/%.c
-	$(DO_BOT_CC)
 
 $(B)/ded/%.o: $(SYSDIR)/%.c
 	$(DO_DED_CC)

@@ -1026,10 +1026,6 @@ void	*Sys_GetCGameAPI( void );
 void	Sys_UnloadUI( void );
 void	*Sys_GetUIAPI( void );
 
-//bot libraries
-void	Sys_UnloadBotLib( void );
-void	*Sys_GetBotLibAPI( void *parms );
-
 char	*Sys_GetCurrentUser( void );
 
 void	QDECL Sys_Error( const char *error, ...) __attribute__ ((format (printf, 1, 2)));
@@ -1081,6 +1077,7 @@ char *Sys_ConsoleInput(void);
 char **Sys_ListFiles( const char *directory, const char *extension, char *filter, int *numfiles, qboolean wantsubs );
 void	Sys_FreeFileList( char **list );
 void	Sys_Sleep(int msec);
+void	Sys_Yield( void );
 
 qboolean Sys_LowPhysicalMemory( void );
 

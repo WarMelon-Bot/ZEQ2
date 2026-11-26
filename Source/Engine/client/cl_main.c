@@ -128,7 +128,6 @@ int serverStatusCount;
 	void hA3Dg_ExportRenderGeom (refexport_t *incoming_re);
 #endif
 
-extern void SV_BotFrame( int time );
 void CL_CheckForResend( void );
 void CL_ShowIP_f(void);
 void CL_ServerStatus_f(void);
@@ -2033,9 +2032,8 @@ void CL_CheckForResend( void ) {
     //   (Com_TokenizeString tokenizes around spaces)
     data[8] = '"';
 
-		for(i=0;i<strlen(info);i++) {
-			data[9+i] = info[i];	// + (clc.challenge)&0x3;
-		}
+		i = strlen( info );
+		memcpy( &data[9], info, i );
     data[9+i] = '"';
 		data[10+i] = 0;
 

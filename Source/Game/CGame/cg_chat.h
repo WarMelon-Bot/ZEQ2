@@ -133,7 +133,14 @@ static int CG_ChatMessageSlot( char *messages, size_t messageSize, int *messageC
 	}
 
 	for ( i = count - 1; i > 0; i-- ) {
-		Q_strncpyz( messages + i * messageSize, messages + (i - 1) * messageSize, (int)messageSize );
+		char *dst = messages + i * messageSize;
+		const char *src = messages + (i - 1) * messageSize;
+		size_t len = strlen( src );
+
+		if ( len >= messageSize )
+			len = messageSize - 1;
+		memmove( dst, src, len );
+		dst[len] = '\0';
 		messageClients[i] = messageClients[i - 1];
 	}
 	messages[0] = '\0';

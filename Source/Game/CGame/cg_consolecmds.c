@@ -641,7 +641,6 @@ void CG_InitConsoleCommands( void ) {
 	trap_AddCommand ("team");
 	trap_AddCommand ("follow");
 	trap_AddCommand ("levelshot");
-	trap_AddCommand ("addbot");
 	trap_AddCommand ("setviewpos");
 	trap_AddCommand ("callvote");
 	trap_AddCommand ("vote");

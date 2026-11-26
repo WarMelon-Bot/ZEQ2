@@ -36,6 +36,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include <pwd.h>
 #include <libgen.h>
 #include <fcntl.h>
+#include <sched.h>
 
 #ifdef ANDROID
 #include <android/log.h>
@@ -497,6 +498,20 @@ void Sys_Sleep( int msec )
 
 		usleep( msec * 1000 );
 	}
+}
+
+/*
+==================
+Sys_Yield
+
+Give up the rest of this thread's timeslice without sleeping.  Used for the
+sub-millisecond part of the frame throttle so high refresh rates don't burn a
+whole core while waiting for the next frame.
+==================
+*/
+void Sys_Yield( void )
+{
+	sched_yield();
 }
 
 /*

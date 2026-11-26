@@ -23,10 +23,6 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 
 #include "server.h"
 
-#include "../botlib/botlib.h"
-
-botlib_export_t	*botlib_export;
-
 void SV_GameError( const char *string ) {
 	Com_Error( ERR_DROP, "%s", string );
 }
@@ -402,11 +398,9 @@ intptr_t SV_GameSystemCalls( intptr_t *args ) {
 	case G_AREAS_CONNECTED:
 		return CM_AreasConnected( args[1], args[2] );
 
-	case G_BOT_ALLOCATE_CLIENT:
-		return SV_BotAllocateClient();
-	case G_BOT_FREE_CLIENT:
-		SV_BotFreeClient( args[1] );
-		return 0;
+	// G_BOT_ALLOCATE_CLIENT / G_BOT_FREE_CLIENT are obsolete: ZEQ2-Lite has
+	// no bot module. Slots are allocated and released by the normal client
+	// path, so the old traps are intentionally not implemented.
 
 	case G_GET_USERCMD:
 		SV_GetUsercmd( args[1], VMA(2) );
@@ -424,11 +418,8 @@ intptr_t SV_GameSystemCalls( intptr_t *args ) {
 			}
 		}
 
-	case G_DEBUG_POLYGON_CREATE:
-		return BotImport_DebugPolygonCreate( args[1], args[2], VMA(3) );
-	case G_DEBUG_POLYGON_DELETE:
-		BotImport_DebugPolygonDelete( args[1] );
-		return 0;
+	// Bot debug polygon traps are obsolete; the AAS renderer they fed has
+	// been removed along with the unused botlib.
 	case G_REAL_TIME:
 		return Com_RealTime( VMA(1) );
 	case G_SNAPVECTOR:
@@ -561,18 +552,6 @@ Called on a normal map change, not on a map_restart
 ===============
 */
 void SV_InitGameProgs( void ) {
-	cvar_t	*var;
-	//FIXME these are temp while I make bots run in vm
-	extern int	bot_enable;
-
-	var = Cvar_Get( "bot_enable", "1", CVAR_LATCH );
-	if ( var ) {
-		bot_enable = var->integer;
-	}
-	else {
-		bot_enable = 0;
-	}
-
 	// load the dll or bytecode
 	gvm = VM_Create( "game", SV_GameSystemCalls, Cvar_VariableValue( "vm_game" ) );
 	if ( !gvm ) {

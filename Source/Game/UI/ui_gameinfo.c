@@ -28,13 +28,10 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 
 
 //
-// arena and bot info
+// arena info
 //
 
 #define POOLSIZE	128 * 1024
-
-int				ui_numBots;
-static char		*ui_botInfos[MAX_BOTS];
 
 static int		ui_numArenas;
 static char		*ui_arenaInfos[MAX_ARENAS];
@@ -311,48 +308,6 @@ const char *UI_GetSpecialArenaInfo( const char *tag ) {
 	return NULL;
 }
 
-/*
-===============
-UI_LoadBots
-===============
-*/
-static void UI_LoadBots( void ) {}
-
-
-/*
-===============
-UI_GetBotInfoByNumber
-===============
-*/
-char *UI_GetBotInfoByNumber( int num ) {
-	if( num < 0 || num >= ui_numBots ) {
-		trap_Print( va( S_COLOR_RED "Invalid bot number: %i\n", num ) );
-		return NULL;
-	}
-	return ui_botInfos[num];
-}
-
-
-/*
-===============
-UI_GetBotInfoByName
-===============
-*/
-char *UI_GetBotInfoByName( const char *name ) {
-	int		n;
-	char	*value;
-
-	for ( n = 0; n < ui_numBots ; n++ ) {
-		value = Info_ValueForKey( ui_botInfos[n], "name" );
-		if ( !Q_stricmp( value, name ) ) {
-			return ui_botInfos[n];
-		}
-	}
-
-	return NULL;
-}
-
-
 //
 // single player game info
 //
@@ -538,16 +493,6 @@ int UI_GetNumArenas( void ) {
 
 /*
 ===============
-UI_GetNumBots
-===============
-*/
-int UI_GetNumBots( void ) {
-	return ui_numBots;
-}
-
-
-/*
-===============
 UI_InitGameinfo
 ===============
 */
@@ -555,7 +500,6 @@ void UI_InitGameinfo( void ) {
 
 	UI_InitMemory();
 	UI_LoadArenas();
-	UI_LoadBots();
 	uis.menuamount = 0;
 	uis.demoversion = qfalse;
 }
