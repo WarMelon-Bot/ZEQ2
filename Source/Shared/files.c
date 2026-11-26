@@ -2554,7 +2554,11 @@ void FS_AddGameDirectory( const char *path, const char *dir ) {
 
 	pakfiles = Sys_ListFiles( pakfile, ".pk3", NULL, &numfiles, qfalse );
 
-	qsort( pakfiles, numfiles, sizeof(char*), paksort );
+	// Sys_ListFiles() returns NULL when the directory has no matching files.
+	// qsort(NULL, 0, ...) is undefined behavior and trips UBSan on startup.
+	if ( numfiles > 1 && pakfiles ) {
+		qsort( pakfiles, numfiles, sizeof(char*), paksort );
+	}
 
 	for ( i = 0 ; i < numfiles ; i++ ) {
 		pakfile = FS_BuildOSPath( path, dir, pakfiles[i] );

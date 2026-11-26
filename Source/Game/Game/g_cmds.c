@@ -919,7 +919,7 @@ void Cmd_GameCommand_f( gentity_t *ent ) {
 	if ( player < 0 || player >= MAX_CLIENTS ) {
 		return;
 	}
-	if ( order < 0 || order > sizeof(gc_orders)/sizeof(char *) ) {
+	if ( order < 0 || order >= (int)(sizeof(gc_orders)/sizeof(char *)) ) {
 		return;
 	}
 	G_Say( ent, &g_entities[player], SAY_TELL, gc_orders[order] );
@@ -1115,6 +1115,7 @@ void Cmd_CallTeamVote_f( gentity_t *ent ) {
 	int		i, team, cs_offset;
 	char	arg1[MAX_STRING_TOKENS];
 	char	arg2[MAX_STRING_TOKENS];
+	char	token[MAX_STRING_TOKENS];
 
 	team = ent->client->sess.sessionTeam;
 	if ( team == TEAM_RED )
@@ -1146,9 +1147,13 @@ void Cmd_CallTeamVote_f( gentity_t *ent ) {
 	trap_Argv( 1, arg1, sizeof( arg1 ) );
 	arg2[0] = '\0';
 	for ( i = 2; i < trap_Argc(); i++ ) {
-		if (i > 2)
-			strcat(arg2, " ");
-		trap_Argv( i, &arg2[strlen(arg2)], sizeof( arg2 ) - strlen(arg2) );
+		if (i > 2) {
+			Q_strcat( arg2, sizeof( arg2 ), " " );
+		}
+		// Fetch into a temporary buffer first: writing directly at the
+		// end of arg2 lets a long argument walk past the array.
+		trap_Argv( i, token, sizeof( token ) );
+		Q_strcat( arg2, sizeof( arg2 ), token );
 	}
 
 	if( strchr( arg1, ';' ) || strchr( arg2, ';' ) ) {

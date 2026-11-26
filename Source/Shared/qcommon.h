@@ -1144,12 +1144,14 @@ void	Huff_Compress(msg_t *buf, int offset);
 void	Huff_Decompress(msg_t *buf, int offset);
 void	Huff_Init(huffman_t *huff);
 void	Huff_addRef(huff_t* huff, byte ch);
-int		Huff_Receive (node_t *node, int *ch, byte *fin);
+// The finlen argument is the number of valid bytes in fin.  Receive helpers
+// return -1/qfalse instead of reading past the end of a truncated packet.
+int		Huff_Receive (node_t *node, int *ch, byte *fin, int finlen);
 void	Huff_transmit (huff_t *huff, int ch, byte *fout);
-void	Huff_offsetReceive (node_t *node, int *ch, byte *fin, int *offset);
+qboolean Huff_offsetReceive (node_t *node, int *ch, byte *fin, int *offset, int finlen);
 void	Huff_offsetTransmit (huff_t *huff, int ch, byte *fout, int *offset);
 void	Huff_putBit( int bit, byte *fout, int *offset);
-int		Huff_getBit( byte *fout, int *offset);
+int		Huff_getBit( byte *fout, int *offset, int finlen);
 
 // don't use if you don't know what you're doing.
 int		Huff_getBloc(void);

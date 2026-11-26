@@ -78,9 +78,13 @@ static void SpecifyServer_Event( void* ptr, int event )
 
 			if (s_specifyserver.domain.field.buffer[0])
 			{
-				strcpy(buff,s_specifyserver.domain.field.buffer);
-				if (s_specifyserver.port.field.buffer[0])
-					Com_sprintf( buff+strlen(buff), 128, ":%s", s_specifyserver.port.field.buffer );
+				Q_strncpyz( buff, s_specifyserver.domain.field.buffer, sizeof( buff ) );
+				if (s_specifyserver.port.field.buffer[0]) {
+					// Com_sprintf used the literal 128 instead of the space
+					// remaining in buff, which could write past the end.
+					Q_strcat( buff, sizeof( buff ), ":" );
+					Q_strcat( buff, sizeof( buff ), s_specifyserver.port.field.buffer );
+				}
 
 				trap_Cmd_ExecuteText( EXEC_APPEND, va( "connect %s\n", buff ) );
 			}

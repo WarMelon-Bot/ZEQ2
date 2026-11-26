@@ -1191,7 +1191,7 @@ static void CG_DrawCrosshair(void) {
 	if ( cg.snap->ps.currentSkill[WPSTAT_BITFLAGS] & WPF_READY || cg.snap->ps.currentSkill[WPSTAT_ALT_BITFLAGS] & WPF_READY) {
 		trap_R_SetColor( chargeColor );
 	}
-	else if ((cg.crosshairClientNum > 0 && cg.crosshairClientNum <= MAX_CLIENTS) || ps->lockedTarget > 0) {
+	else if ( cg.crosshairClientNum >= 0 && cg.crosshairClientNum < MAX_CLIENTS ) {
 		if( cgs.clientinfo[cg.crosshairClientNum].team == cg.snap->ps.persistant[PERS_TEAM] && cgs.clientinfo[cg.crosshairClientNum].team != TEAM_FREE  ) {
 			trap_R_SetColor( lockOnAllyColor );
 		}
@@ -1237,7 +1237,11 @@ static void CG_ScanForCrosshairEntity(void) {
 	
 	CG_Trace(&trace,start,minSize,maxSize,end,cg.snap->ps.clientNum,CONTENTS_BODY);
 
-	if (trace.entityNum>=MAX_CLIENTS){cg.crosshairClientNum= -1;return;}
+	if (trace.entityNum>=MAX_CLIENTS){
+		cg.crosshairClientNum = -1;
+		cg.crosshairClientTime = 0;
+		return;
+	}
 
 	cg.crosshairClientNum=trace.entityNum;
 	cg.crosshairClientTime=cg.time;
@@ -1267,7 +1271,7 @@ static void CG_DrawCrosshairNames( void ) {
 
 	// draw the name of the player being looked at
 	color = CG_FadeColor( cg.crosshairClientTime, 1000, 200 );
-	if ( !color ) {
+	if ( !color || cg.crosshairClientNum < 0 || cg.crosshairClientNum >= MAX_CLIENTS ) {
 		trap_R_SetColor( NULL );
 		return;
 	}
@@ -1659,6 +1663,7 @@ static qboolean CG_DrawFollow( void ) {
 	float		x;
 	vec4_t		color;
 	const char	*name;
+	int			clientNum;
 
 	if ( !(cg.snap->ps.pm_flags & PMF_FOLLOW) ) {
 		return qfalse;
@@ -1671,7 +1676,11 @@ static qboolean CG_DrawFollow( void ) {
 
 	CG_DrawBigString( 320 - 9 * 8, 24, "following", 1.0F );
 
-	name = cgs.clientinfo[ cg.snap->ps.clientNum ].name;
+	clientNum = cg.snap->ps.clientNum;
+	if ( clientNum < 0 || clientNum >= MAX_CLIENTS ) {
+		clientNum = 0;
+	}
+	name = cgs.clientinfo[ clientNum ].name;
 
 	x = 0.5 * ( 640 - GIANT_WIDTH * CG_DrawStrlen( name ) );
 

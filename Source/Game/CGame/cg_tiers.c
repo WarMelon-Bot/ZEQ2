@@ -175,6 +175,13 @@ void parseTier(char *path,tierConfig_cg *tier){
 	char fileContents[32000];
 	if(trap_FS_FOpenFile(path,0,FS_READ)>0){
 		fileLength = trap_FS_FOpenFile(path,&tierCFG,FS_READ);
+		// Bound the read to the parser buffer; oversized files are simply
+		// truncated instead of smashing the stack.
+		if ( fileLength < 0 ) {
+			fileLength = 0;
+		} else if ( fileLength > (int)sizeof(fileContents) - 1 ) {
+			fileLength = (int)sizeof(fileContents) - 1;
+		}
 		trap_FS_Read(fileContents,fileLength,tierCFG);
 		fileContents[fileLength] = 0;
 		trap_FS_FCloseFile(tierCFG);

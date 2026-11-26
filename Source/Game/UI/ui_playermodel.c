@@ -337,7 +337,7 @@ static void PlayerModel_PicEvent( void* ptr, int event )
 	{
 		// track the whole model/skin name
 		Q_strncpyz(s_playermodel.modelskin,buffptr,pdest-buffptr+1);
-		strcat(s_playermodel.modelskin,pdest + 5);
+		Q_strcat(s_playermodel.modelskin, sizeof(s_playermodel.modelskin), pdest + 5);
 
 		// seperate the model name
 		maxlen = pdest-buffptr;
@@ -478,7 +478,7 @@ static void PlayerModel_SetMenuItems( void )
 		if (pdest)
 		{
 			Q_strncpyz(modelskin,buffptr,pdest-buffptr+1);
-			strcat(modelskin,pdest + 5);
+			Q_strcat(modelskin, sizeof(modelskin), pdest + 5);
 		}
 		else
 			continue;

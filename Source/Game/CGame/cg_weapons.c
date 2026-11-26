@@ -812,7 +812,11 @@ void CG_AddViewWeapon( playerState_t *ps ) {
 		hand.backlerp = 0;
 	} else {
 		// get clientinfo for animation map
-		ci = &cgs.clientinfo[ cent->currentState.clientNum ];
+		int clientNum = cent->currentState.clientNum;
+		if ( clientNum < 0 || clientNum >= MAX_CLIENTS ) {
+			clientNum = 0;
+		}
+		ci = &cgs.clientinfo[ clientNum ];
 		hand.frame = CG_MapTorsoToWeaponFrame( ci, cent->pe.torso.frame );
 		hand.oldframe = CG_MapTorsoToWeaponFrame( ci, cent->pe.torso.oldFrame );
 		hand.backlerp = cent->pe.torso.backlerp;

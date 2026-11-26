@@ -411,6 +411,9 @@ void CG_NewClientInfo( int clientNum ) {
 	const char	*configstring;
 	const char	*v,*model;
 	char *skin;
+	if ( clientNum < 0 || clientNum >= MAX_CLIENTS ) {
+		return;
+	}
 	ci = &cgs.clientinfo[clientNum];
 	configstring = CG_ConfigString( clientNum + CS_PLAYERS );
 	if ( !configstring[0] ) {
@@ -1141,7 +1144,15 @@ static void CG_BreathPuffs( centity_t *cent, refEntity_t *head) {
 	clientInfo_t *ci;
 	vec3_t up, origin;
 	int contents;
-	ci = &cgs.clientinfo[ cent->currentState.number ];
+	int clientNum;
+
+	// Entity numbers can exceed MAX_CLIENTS (corpses, bodyques).  The
+	// breath timer belongs to the player, not to the entity slot.
+	clientNum = cent->currentState.clientNum;
+	if ( clientNum < 0 || clientNum >= MAX_CLIENTS ) {
+		return;
+	}
+	ci = &cgs.clientinfo[ clientNum ];
 	contents = trap_CM_PointContents( head->origin, 0 );
 	if ( cent->currentState.eFlags & EF_DEAD ) {return;}
 	if ( ci->breathPuffTime > cg.time ) {return;}
@@ -1220,7 +1231,13 @@ static void CG_PlayerSprites( centity_t *cent ) {
 		CG_PlayerFloatSprite( cent, cgs.media.chatBubble );
 		return;
 	}
-	team = cgs.clientinfo[ cent->currentState.clientNum ].team;
+	{
+		int clientNum = cent->currentState.clientNum;
+		if ( clientNum < 0 || clientNum >= MAX_CLIENTS ) {
+			clientNum = 0;
+		}
+		team = cgs.clientinfo[ clientNum ].team;
+	}
 	if ( !(cent->currentState.eFlags & EF_DEAD) && 
 		cg.snap->ps.persistant[PERS_TEAM] == team &&
 		cgs.gametype >= GT_TEAM &&
@@ -2067,11 +2084,17 @@ A player just came into view or teleported, so reset all animation info
 ===============
 */
 void CG_ResetPlayerEntity( centity_t *cent ) {
+	int clientNum;
+
 	cent->errorTime = -99999;		// guarantee no error decay added
 	cent->extrapolated = qfalse;	
 
-	CG_ClearLerpFrame( &cgs.clientinfo[ cent->currentState.clientNum ], &cent->pe.legs, cent->currentState.legsAnim );
-	CG_ClearLerpFrame( &cgs.clientinfo[ cent->currentState.clientNum ], &cent->pe.torso, cent->currentState.torsoAnim );
+	clientNum = cent->currentState.clientNum;
+	if ( clientNum < 0 || clientNum >= MAX_CLIENTS ) {
+		clientNum = 0;
+	}
+	CG_ClearLerpFrame( &cgs.clientinfo[ clientNum ], &cent->pe.legs, cent->currentState.legsAnim );
+	CG_ClearLerpFrame( &cgs.clientinfo[ clientNum ], &cent->pe.torso, cent->currentState.torsoAnim );
 
 	BG_EvaluateTrajectory( &cent->currentState, &cent->currentState.pos, cg.time, cent->lerpOrigin );
 	BG_EvaluateTrajectory( &cent->currentState, &cent->currentState.apos, cg.time, cent->lerpAngles );
