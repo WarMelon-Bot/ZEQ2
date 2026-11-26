@@ -77,6 +77,9 @@ backend.  Headless smoke tests use Xvfb with lavapipe:
   fixed-function features without a direct Vulkan equivalent may be partially
   emulated or ignored; shaders are still authoritative for final color and
   alpha.
+* The renderer back end can run on a second thread with `r_smp 1`, just like
+  the OpenGL path.  Vulkan does not need the GLX context hand-off, so the
+  thread starts on any SDL video driver that can create the window.
 * The framebuffer uses a packed depth/stencil attachment (`D24_UNORM_S8_UINT`
   where available, otherwise `D32_SFLOAT_S8_UINT` or `D16_UNORM_S8_UINT`).
   The backend reports 8 stencil bits through `GL_STENCIL_BITS` and
