@@ -8,6 +8,7 @@
 #   ./build.sh test            run allocator unit tests and smoke tests
 #   ./build.sh memory-test     build and run just the allocator unit tests
 #   ./build.sh memory-test-asan  build and run the allocator tests with ASan/UBSan
+#   ./build.sh pmove-test        run deterministic movement/melee/weapon regression tests
 #   ./build.sh warnings        clean rebuild that fails on any compiler warning
 #   ./build.sh run [args...]   run the graphical client
 #   ./build.sh smp [args...]   run the multi-threaded renderer client
@@ -364,6 +365,25 @@ memory_test() {
     "$binary"
 }
 
+pmove_test() {
+    local cc="${CC:-cc}" binary="$TEST_DIR/pmove-tests" output="$TEST_DIR/pmove-tests.out"
+    local game="$SOURCE_DIR/Game/Game"
+
+    log "Building and running deterministic pmove regression tests..."
+    mkdir -p "$TEST_DIR"
+    "$cc" -std=gnu17 -Wall -DGAME -DNDEBUG -DNO_VM_COMPILED \
+        -DPRODUCT_VERSION='"ZEQ2-Lite pmove tests"' \
+        -I "$SOURCE_DIR/Shared" -I "$game" -I "$SOURCE_DIR/Engine/client" \
+        -o "$binary" \
+        "$SOURCE_DIR/Tests/pmove_harness.c" \
+        "$game/bg_pmove.c" "$game/bg_pmanim.c" "$game/bg_pmmelee.c" \
+        "$game/bg_pmmove.c" "$game/bg_pmweapon.c" "$game/bg_slidemove.c" \
+        "$game/bg_misc.c" "$game/bg_lib.c" \
+        "$SOURCE_DIR/Shared/q_math.c" "$SOURCE_DIR/Shared/q_shared.c" -lm
+    "$binary" >"$output"
+    diff -u "$SOURCE_DIR/Tests/pmove_harness.expected" "$output"
+}
+
 memory_test_sanitized() {
     local cc="${CC:-cc}" binary="$TEST_DIR/memory-tests-asan"
     local probe="$TEST_DIR/sanitizer-probe"
@@ -583,6 +603,7 @@ Commands:
   memory-limit-test  Verify a 64-bit server accepts multi-gigabyte allocator cvars
   memory-test  Build and run the zone/hunk allocator unit tests
   memory-test-asan  Build and run the allocator unit tests with ASan/UBSan
+  pmove-test  Build and run deterministic movement/melee/weapon regression tests
   vulkan_smoke_test  Smoke-test the Vulkan client under Xvfb (lavapipe)
   warnings  Fresh release+debug rebuild; fail if any compiler warning appears
   win64     Cross-build Windows x64 server and game modules (needs mingw-w64)
@@ -623,7 +644,7 @@ while (($#)); do
             if [[ "$1" == all || "$1" == deps || "$1" == build || "$1" == release || \
                   "$1" == test || "$1" == memory-limit-test || \
                   "$1" == memory-test || "$1" == memory-test-asan || \
-                  "$1" == vulkan_smoke_test || "$1" == warnings || \
+                  "$1" == pmove-test || "$1" == vulkan_smoke_test || "$1" == warnings || \
                   "$1" == win64 || "$1" == android || \
                   "$1" == run || "$1" == smp || "$1" == server || "$1" == clean ]]; then
                 command_name="$1"
@@ -641,6 +662,7 @@ case "$command_name" in
         build_all
         memory_test
         memory_test_sanitized
+        pmove_test
         smoke_test
         memory_limit_test
         client_smoke_test
@@ -658,10 +680,14 @@ case "$command_name" in
     test)
         memory_test
         memory_test_sanitized
+        pmove_test
         smoke_test
         memory_limit_test
         client_smoke_test
         vulkan_smoke_test
+        ;;
+    pmove-test)
+        pmove_test
         ;;
     memory-limit-test)
         memory_limit_test

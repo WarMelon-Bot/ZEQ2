@@ -1890,6 +1890,10 @@ CGOBJ_ = \
   $(B)/Base/CGame/cg_main.o \
   $(B)/Base/CGame/bg_misc.o \
   $(B)/Base/CGame/bg_pmove.o \
+  $(B)/Base/CGame/bg_pmanim.o \
+  $(B)/Base/CGame/bg_pmmelee.o \
+  $(B)/Base/CGame/bg_pmmove.o \
+  $(B)/Base/CGame/bg_pmweapon.o \
   $(B)/Base/CGame/bg_slidemove.o \
   $(B)/Base/CGame/bg_lib.o \
   $(B)/Base/CGame/cg_consolecmds.o \
@@ -1945,6 +1949,10 @@ GOBJ_ = \
   $(B)/Base/Game/g_main.o \
   $(B)/Base/Game/bg_misc.o \
   $(B)/Base/Game/bg_pmove.o \
+  $(B)/Base/Game/bg_pmanim.o \
+  $(B)/Base/Game/bg_pmmelee.o \
+  $(B)/Base/Game/bg_pmmove.o \
+  $(B)/Base/Game/bg_pmweapon.o \
   $(B)/Base/Game/bg_slidemove.o \
   $(B)/Base/Game/bg_lib.o \
   $(B)/Base/Game/g_active.o \
