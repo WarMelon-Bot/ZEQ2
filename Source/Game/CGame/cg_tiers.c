@@ -173,13 +173,11 @@ void parseTier(char *path,tierConfig_cg *tier){
 	char *token,*parse;
 	int fileLength;
 	char fileContents[32000];
-	if(trap_FS_FOpenFile(path,0,FS_READ)>0){
-		fileLength = trap_FS_FOpenFile(path,&tierCFG,FS_READ);
+	fileLength = trap_FS_FOpenFile(path,&tierCFG,FS_READ);
+	if(tierCFG && fileLength > 0){
 		// Bound the read to the parser buffer; oversized files are simply
 		// truncated instead of smashing the stack.
-		if ( fileLength < 0 ) {
-			fileLength = 0;
-		} else if ( fileLength > (int)sizeof(fileContents) - 1 ) {
+		if ( fileLength > (int)sizeof(fileContents) - 1 ) {
 			fileLength = (int)sizeof(fileContents) - 1;
 		}
 		trap_FS_Read(fileContents,fileLength,tierCFG);
@@ -192,7 +190,7 @@ void parseTier(char *path,tierConfig_cg *tier){
 			else if(!Q_stricmp(token,"tierName")){
 				token = COM_Parse(&parse);
 				if(!token[0]){break;}
-				tier->name = token;
+				Q_strncpyz(tier->name, token, sizeof(tier->name));
 			}
 			else if(!Q_stricmp(token,"tierIcon")){
 				token = COM_Parse(&parse);
