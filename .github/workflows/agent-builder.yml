@@ -8,9 +8,9 @@ on:
         required: true
         default: 'Inspect the repo, update AGENTS.md with all build/test suites, compile, and fix any errors.'
       model:
-        description: 'Preferred first model (auto-falls back to OpenRouter -> Gemini -> OpenCode if rate-limited)'
+        description: 'Preferred first model (auto-falls back through all free OpenCode models, then OpenRouter -> Gemini)'
         required: false
-        default: 'mistral/codestral-latest'
+        default: 'opencode/big-pickle'
   issues:
     types: [opened]
   issue_comment:
@@ -43,7 +43,7 @@ jobs:
       - name: Configure Git Identity
         run: |
           git config --global user.name "github-actions[bot]"
-          git config --global user.email "41898282+github-actions[bot]@://github.com"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
       - name: Run OpenCode Agent with Automatic Fallback
         env:
@@ -54,32 +54,65 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           OPENCODE_PERMISSION: '{"*": "allow", "websearch": "deny", "question": "deny"}'
         run: |
-          PREFERRED="${{ github.event.inputs.model || 'mistral/codestral-latest' }}"
-          MODELS=(
+          PREFERRED="${{ github.event.inputs.model || 'opencode/big-pickle' }}"
+
+          # --- Phase 1: OpenCode free models (exhaust ALL of them first) ---
+          OPENCODE_MODELS=(
             "$PREFERRED"
+            "opencode/big-pickle"
+            "opencode/grok-code-fast-1"
+            "opencode/kimi-k2p5"
+            "opencode/mini"
+            "opencode/mimo-v2p5"
+            "opencode/qwen3-coder"
+          )
+          # Dedupe so $PREFERRED isn't tried twice if it's an opencode model
+          OPENCODE_UNIQUE=($(printf "%s\n" "${OPENCODE_MODELS[@]}" | awk '!seen[$0]++'))
+
+          # --- Phase 2: Other providers / paid fallbacks ---
+          EXTERNAL_MODELS=(
             "openrouter/openrouter/free"
             "google/gemini-3.8-flash"
-            "opencode/big-pickle"
+            "mistral/codestral-latest"
           )
 
           PROMPT="Follow AGENTS.md (including keeping AGENTS.md updated with all build commands and test suites) and complete this task:
           Original Issue: ${{ github.event.issue.body }}
           Latest Comment / Manual Task: ${{ github.event.inputs.task || github.event.comment.body }}"
 
-          SUCCESS=0
-          for MODEL in "${MODELS[@]}"; do
+          run_model() {
+            local MODEL="$1"
             echo "=================================================="
             echo "Attempting run with model: $MODEL"
             echo "=================================================="
             if opencode run -m "$MODEL" "$PROMPT"; then
               echo "Succeeded with model: $MODEL"
+              return 0
+            fi
+            echo "Model $MODEL failed or hit rate limit. Falling back to next provider..."
+            sleep 3
+            return 1
+          }
+
+          SUCCESS=0
+
+          echo ">>> Phase 1: Trying all free OpenCode models first <<<"
+          for MODEL in "${OPENCODE_UNIQUE[@]}"; do
+            if run_model "$MODEL"; then
               SUCCESS=1
               break
-            else
-              echo "Model $MODEL failed or hit rate limit. Falling back to next provider..."
-              sleep 3
             fi
           done
+
+          if [ "$SUCCESS" -ne 1 ]; then
+            echo ">>> Phase 2: OpenCode free tier exhausted — switching to other providers/API keys <<<"
+            for MODEL in "${EXTERNAL_MODELS[@]}"; do
+              if run_model "$MODEL"; then
+                SUCCESS=1
+                break
+              fi
+            done
+          fi
 
           if [ "$SUCCESS" -ne 1 ]; then
             echo "All configured models failed or hit quota limits."
