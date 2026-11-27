@@ -16,123 +16,117 @@ on:
   issue_comment:
     types: [created]
 
-permissions: write-all
+# Security: only what the agent actually needs, instead of write-all
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+# Cost/speed: cancel superseded runs (e.g. rapid comments on the same issue)
+concurrency:
+  group: agent-${{ github.event.issue.number || 'manual' }}
+  cancel-in-progress: true
+
+env:
+  GITHUB_TOKEN: ${{ secrets.AGENT_PAT }}
+  GH_TOKEN: ${{ secrets.AGENT_PAT }}
 
 jobs:
   run-agent:
+    # Guard against bot-triggered loops
     if: |
-      github.event_name == 'workflow_dispatch' ||
-      (github.event.sender.login == github.repository_owner &&
-      contains(format('{0} {1}', github.event.issue.body, github.event.comment.body), '@agent'))
+      github.actor != 'github-actions[bot]' && (
+        github.event_name == 'workflow_dispatch' ||
+        (github.event.sender.login == github.repository_owner &&
+        contains(format('{0} {1}', github.event.issue.body, github.event.comment.body), '@agent'))
+      )
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
         with:
           token: ${{ secrets.AGENT_PAT }}
+          fetch-depth: 1            # shallow clone — the agent doesn't need history
 
-      - name: Setup Node.js
+      - name: Setup Node.js & Install OpenCode
         uses: actions/setup-node@v5
         with:
           node-version: '24'
-          package-manager-cache: false
-
       - name: Install OpenCode
-        run: npm install -g @opencode/cli
+        run: npm install -g @opencode/cli --no-audit --no-fund --loglevel=error
 
       - name: Configure Git Identity
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config --global push.autoSetupRemote true
 
       - name: Run OpenCode Agent with Automatic Fallback
+        timeout-minutes: 60         # hard ceiling so a hung model can't burn the whole quota
         env:
-          GITHUB_TOKEN: ${{ secrets.AGENT_PAT }}
-          GH_TOKEN: ${{ secrets.AGENT_PAT }}
           MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           OPENCODE_PERMISSION: '{"*": "allow", "websearch": "deny", "question": "deny"}'
+          OPENCODE_DISABLE_AUTOUPDATE: '1'   # skip update checks that can stall the run
+          # Pass dynamic text via env — avoids YAML/bash quoting explosions and script injection
+          PREFERRED_MODEL: ${{ github.event.inputs.model || 'opencode/big-pickle' }}
+          INPUT_TASK: ${{ github.event.inputs.task }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
         run: |
-          PREFERRED="${{ github.event.inputs.model || 'opencode/big-pickle' }}"
+          set -u
 
-          # --- Phase 1: OpenCode free models (exhaust ALL of them first) ---
-          OPENCODE_MODELS=(
-            "$PREFERRED"
-            "opencode/big-pickle"
-            "opencode/grok-code-fast-1"
-            "opencode/kimi-k2p5"
-            "opencode/mini"
-            "opencode/mimo-v2p5"
-            "opencode/qwen3-coder"
+          # Single ordered list; preferred model goes first, duplicates removed
+          ALL_MODELS=(
+            "$PREFERRED_MODEL"
+            opencode/big-pickle
+            opencode/grok-code-fast-1
+            opencode/kimi-k2p5
+            opencode/mini
+            opencode/mimo-v2p5
+            opencode/qwen3-coder
+            openrouter/openrouter/free
+            google/gemini-3.8-flash
+            mistral/codestral-latest
           )
-          # Dedupe so $PREFERRED isn't tried twice if it's an opencode model
-          OPENCODE_UNIQUE=($(printf "%s\n" "${OPENCODE_MODELS[@]}" | awk '!seen[$0]++'))
+          MODELS=($(printf '%s\n' "${ALL_MODELS[@]}" | awk '!seen[$0]++'))
 
-          # --- Phase 2: Other providers / paid fallbacks ---
-          EXTERNAL_MODELS=(
-            "openrouter/openrouter/free"
-            "google/gemini-3.8-flash"
-            "mistral/codestral-latest"
-          )
+          PROMPT="$(printf 'Follow AGENTS.md (including keeping AGENTS.md updated with all build commands and test suites) and complete this task:\nOriginal Issue: %s\nLatest Comment / Manual Task: %s' \
+            "${ISSUE_BODY:-}" "${INPUT_TASK:-$COMMENT_BODY}")"
 
-          PROMPT="Follow AGENTS.md (including keeping AGENTS.md updated with all build commands and test suites) and complete this task:
-          Original Issue: ${{ github.event.issue.body }}
-          Latest Comment / Manual Task: ${{ github.event.inputs.task || github.event.comment.body }}"
-
-          run_model() {
-            local MODEL="$1"
+          for MODEL in "${MODELS[@]}"; do
+            PHASE="OpenCode free tier"; [[ "$MODEL" != opencode/* ]] && PHASE="external providers"
             echo "=================================================="
-            echo "Attempting run with model: $MODEL"
+            echo "Attempting run [$PHASE] with model: $MODEL"
             echo "=================================================="
-            if opencode run -m "$MODEL" "$PROMPT"; then
+            # timeout prevents one stuck model from eating the job's entire minute budget
+            if timeout 900 opencode run -m "$MODEL" "$PROMPT"; then
               echo "Succeeded with model: $MODEL"
-              return 0
+              exit 0
             fi
-            echo "Model $MODEL failed or hit rate limit. Falling back to next provider..."
+            echo "Model $MODEL failed, timed out, or hit rate limit. Falling back..."
             sleep 3
-            return 1
-          }
-
-          SUCCESS=0
-
-          echo ">>> Phase 1: Trying all free OpenCode models first <<<"
-          for MODEL in "${OPENCODE_UNIQUE[@]}"; do
-            if run_model "$MODEL"; then
-              SUCCESS=1
-              break
-            fi
           done
 
-          if [ "$SUCCESS" -ne 1 ]; then
-            echo ">>> Phase 2: OpenCode free tier exhausted — switching to other providers/API keys <<<"
-            for MODEL in "${EXTERNAL_MODELS[@]}"; do
-              if run_model "$MODEL"; then
-                SUCCESS=1
-                break
-              fi
-            done
-          fi
-
-          if [ "$SUCCESS" -ne 1 ]; then
-            echo "All configured models failed or hit quota limits."
-            exit 1
-          fi
+          echo "All configured models failed or hit quota limits."
+          exit 1
 
       - name: Rescue Uncommitted Changes into PR (Fallback)
         if: always()
-        env:
-          GITHUB_TOKEN: ${{ secrets.AGENT_PAT }}
-          GH_TOKEN: ${{ secrets.AGENT_PAT }}
         run: |
-          if [ -n "$(git status --porcelain)" ]; then
-            BRANCH=$(git branch --show-current)
-            if [ -z "$BRANCH" ] || [ "$BRANCH" = "main" ]; then
-              BRANCH="agent-fix-$(date +%s)"
-              git checkout -b "$BRANCH"
-            fi
-            git add -A
-            git commit -m "chore: autonomous agent build, tests & AGENTS.md updates"
-            git push -u origin "$BRANCH"
-            gh pr create --title "Autonomous Agent Build & Fixes" --body "Automated changes generated by OpenCode agent." --base main --head "$BRANCH" || true
+          if [ -z "$(git status --porcelain)" ]; then
+            echo "No uncommitted changes to rescue."
+            exit 0
           fi
+          BRANCH=$(git branch --show-current)
+          if [ -z "$BRANCH" ] || [ "$BRANCH" = "main" ]; then
+            BRANCH="agent-fix-$(date +%s)"
+            git switch -c "$BRANCH"
+          fi
+          git add -A
+          git commit -m "chore: autonomous agent build, tests & AGENTS.md updates"
+          git push -u origin "$BRANCH"
+          gh pr create --title "Autonomous Agent Build & Fixes" \
+            --body "Automated changes generated by OpenCode agent." \
+            --base main --head "$BRANCH" || echo "PR may already exist."
