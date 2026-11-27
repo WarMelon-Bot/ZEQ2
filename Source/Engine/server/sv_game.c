@@ -327,6 +327,11 @@ intptr_t SV_GameSystemCalls( intptr_t *args ) {
 		return 0;
 
 	case G_FS_FOPEN_FILE:
+		// Zero file-handle addresses are existence probes; do not open and
+		// leak a real handle for them.
+		if ( !args[2] ) {
+			return FS_FOpenFileRead( VMA(1), NULL, qtrue );
+		}
 		return FS_FOpenFileByMode( VMA(1), VMA(2), args[3] );
 	case G_FS_READ:
 		FS_Read2( VMA(1), args[2], args[3] );

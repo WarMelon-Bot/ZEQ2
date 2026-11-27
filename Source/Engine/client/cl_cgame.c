@@ -443,6 +443,12 @@ intptr_t CL_CgameSystemCalls( intptr_t *args ) {
 		Cmd_ArgsBuffer( VMA(1), args[2] );
 		return 0;
 	case CG_FS_FOPENFILE:
+		// A zero handle pointer is an existence probe.  Passing VMA(2) to
+		// FS_FOpenFileByMode would allocate a real handle that the module
+		// never closes; rapid model swaps then exhaust MAX_FILE_HANDLES.
+		if ( !args[2] ) {
+			return FS_FOpenFileRead( VMA(1), NULL, qtrue );
+		}
 		return FS_FOpenFileByMode( VMA(1), VMA(2), args[3] );
 	case CG_FS_READ:
 		FS_Read2( VMA(1), args[2], args[3] );

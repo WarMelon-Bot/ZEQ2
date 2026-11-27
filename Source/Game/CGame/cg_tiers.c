@@ -168,15 +168,16 @@ qboolean CG_RegisterClientModelnameWithTiers(clientInfo_t *ci, const char *model
 	return qtrue;
 }
 void parseTier(char *path,tierConfig_cg *tier){
-	fileHandle_t tierCFG;
+	fileHandle_t tierCFG = 0;
 	int i;
 	char *token,*parse;
 	int fileLength;
 	char fileContents[32000];
 	fileLength = trap_FS_FOpenFile(path,&tierCFG,FS_READ);
-	if(tierCFG && fileLength > 0){
+	if(tierCFG && fileLength >= 0){
 		// Bound the read to the parser buffer; oversized files are simply
-		// truncated instead of smashing the stack.
+		// truncated instead of smashing the stack.  A zero-length config
+		// still opened a handle, so close it on every successful open.
 		if ( fileLength > (int)sizeof(fileContents) - 1 ) {
 			fileLength = (int)sizeof(fileContents) - 1;
 		}

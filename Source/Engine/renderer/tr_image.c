@@ -1521,7 +1521,7 @@ qhandle_t RE_RegisterSkin( const char *name ) {
 	R_SyncRenderThread();
 
 	// If not a .skin file, load as a single shader
-	if ( strcmp( name + strlen( name ) - 5, ".skin" ) ) {
+	if ( !Q_EndsWithIgnoreCase( name, strlen( name ), ".skin" ) ) {
 		skin->numSurfaces = 1;
 		skin->surfaces[0] = ri.Hunk_Alloc( sizeof(skin->surfaces[0]), h_low );
 		skin->surfaces[0]->shader = R_FindShader( name, LIGHTMAP_NONE, qtrue );
@@ -1531,11 +1531,19 @@ qhandle_t RE_RegisterSkin( const char *name ) {
 	// load and parse the skin file
     ri.FS_ReadFile( name, &text.v );
 	if ( !text.c ) {
+		// Do not keep a failed skin in the cache: a model with many missing
+		// alternate skins would otherwise consume every MAX_SKINS slot.
+		tr.numSkins--;
+		skin->name[0] = 0;
 		return 0;
 	}
 
 	text_p = text.c;
 	while ( text_p && *text_p ) {
+		if ( skin->numSurfaces >= MD3_MAX_SURFACES ) {
+			ri.Printf( PRINT_WARNING, "WARNING: RE_RegisterSkin( '%s' ) has too many surfaces\n", name );
+			break;
+		}
 		// get surface name
 		token = CommaParse( &text_p );
 		Q_strncpyz( surfName, token, sizeof( surfName ) );
@@ -1568,6 +1576,8 @@ qhandle_t RE_RegisterSkin( const char *name ) {
 
 	// never let a skin have 0 shaders
 	if ( skin->numSurfaces == 0 ) {
+		tr.numSkins--;
+		skin->name[0] = 0;
 		return 0;		// use default skin
 	}
 

@@ -1036,14 +1036,35 @@ int FS_FOpenFileRead( const char *filename, fileHandle_t *file, qboolean uniqueF
 		Com_Error( ERR_FATAL, "Filesystem call made without initialization\n" );
 	}
 
-	if ( file == NULL ) {
-		if ( !filename || !*filename ) {
+	if ( !filename ) {
+		if ( file == NULL ) {
 			return qfalse;
 		}
+		Com_Error( ERR_FATAL, "FS_FOpenFileRead: NULL 'filename' parameter passed\n" );
+	}
+
+	Com_sprintf (demoExt, sizeof(demoExt), ".dm_%d",PROTOCOL_VERSION );
+
+	// Apply the same normalization and traversal checks to every entry point.
+	// The existence-only path used by model/skin probes used to skip both.
+	filename = Q_NormalizeQPath( filename );
+	if ( !Q_IsSafeQPath( filename ) ) {
+		if ( file ) {
+			*file = 0;
+			return -1;
+		}
+		return qfalse;
+	}
+
+	if ( file == NULL ) {
 		// just wants to see if file is there
 		for ( search = fs_searchpaths ; search ; search = search->next ) {
 			//
 			if ( search->pack ) {
+				// Existence probes must respect pure paks just like opens do.
+				if ( !FS_PakIsPure( search->pack ) ) {
+					continue;
+				}
 				hash = FS_HashFileName(filename, search->pack->hashSize);
 			}
 			// is the element a pak file?
@@ -1060,6 +1081,16 @@ int FS_FOpenFileRead( const char *filename, fileHandle_t *file, qboolean uniqueF
 					pakFile = pakFile->next;
 				} while(pakFile != NULL);
 			} else if ( search->dir ) {
+				l = strlen( filename );
+				if ( fs_numServerPaks &&
+					!Q_EndsWithIgnoreCase( filename, l, ".cfg" ) &&
+					!Q_EndsWithIgnoreCase( filename, l, ".menu" ) &&
+					!Q_EndsWithIgnoreCase( filename, l, ".game" ) &&
+					!Q_EndsWithIgnoreCase( filename, l, demoExt ) &&
+					!Q_EndsWithIgnoreCase( filename, l, ".dat" ) ) {
+					continue;
+				}
+
 				dir = search->dir;
 			
 				netpath = FS_BuildOSPath( dir->path, dir->gamedir, filename );
@@ -1072,24 +1103,6 @@ int FS_FOpenFileRead( const char *filename, fileHandle_t *file, qboolean uniqueF
 			}
 		}
 		return qfalse;
-	}
-
-	if ( !filename ) {
-		Com_Error( ERR_FATAL, "FS_FOpenFileRead: NULL 'filename' parameter passed\n" );
-	}
-
-	Com_sprintf (demoExt, sizeof(demoExt), ".dm_%d",PROTOCOL_VERSION );
-	// qpaths are not supposed to have a leading slash
-	if ( filename[0] == '/' || filename[0] == '\\' ) {
-		filename++;
-	}
-
-	// make absolutely sure that it can't back up the path.
-	// The searchpaths do guarantee that something will always
-	// be prepended, so we don't need to worry about "c:" or "//limbo" 
-	if ( strstr( filename, ".." ) || strstr( filename, "::" ) ) {
-		*file = 0;
-		return -1;
 	}
 
 	//

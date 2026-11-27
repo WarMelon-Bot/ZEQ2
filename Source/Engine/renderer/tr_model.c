@@ -483,6 +483,7 @@ static qboolean R_LoadMD3 (model_t *mod, int lod, void *buffer, int fileSize, co
 	md3Tag_t			*tag;
 	int					version;
 	int					size;
+	int					surfRemaining;
 
 	if ( fileSize < (int)sizeof( md3Header_t ) ) {
 		ri.Printf( PRINT_WARNING, "R_LoadMD3: %s is shorter than its header\n", mod_name );
@@ -503,6 +504,31 @@ static qboolean R_LoadMD3 (model_t *mod, int lod, void *buffer, int fileSize, co
 		return qfalse;
 	}
 
+	// Validate all header counts and top-level offsets before copying the
+	// model into permanent hunk memory.  The old loader trusted these fields
+	// and then byte-swapped through arbitrary pointers inside that copy.
+	{
+		int numFrames = LittleLong( pinmodel->numFrames );
+		int numTags = LittleLong( pinmodel->numTags );
+		int numSurfaces = LittleLong( pinmodel->numSurfaces );
+		int ofsFrames = LittleLong( pinmodel->ofsFrames );
+		int ofsTags = LittleLong( pinmodel->ofsTags );
+		int ofsSurfaces = LittleLong( pinmodel->ofsSurfaces );
+
+		if ( numFrames < 1 || numFrames > MD3_MAX_FRAMES ||
+			 numTags < 0 || numTags > MD3_MAX_TAGS ||
+			 numSurfaces < 0 || numSurfaces > MD3_MAX_SURFACES ) {
+			ri.Printf( PRINT_WARNING, "R_LoadMD3: %s has invalid counts\n", mod_name );
+			return qfalse;
+		}
+		if ( !Q_BufferRangeValid( size, ofsFrames, numFrames, sizeof( md3Frame_t ) ) ||
+			 !Q_BufferRangeValid( size, ofsTags, numTags * numFrames, sizeof( md3Tag_t ) ) ||
+			 !Q_BufferRangeValid( size, ofsSurfaces, numSurfaces, sizeof( md3Surface_t ) ) ) {
+			ri.Printf( PRINT_WARNING, "R_LoadMD3: %s has out of range offsets\n", mod_name );
+			return qfalse;
+		}
+	}
+
 	mod->type = MOD_MESH;
 	mod->dataSize += size;
 	mod->md3[lod] = ri.Hunk_Alloc( size, h_low );
@@ -518,11 +544,6 @@ static qboolean R_LoadMD3 (model_t *mod, int lod, void *buffer, int fileSize, co
     LL(mod->md3[lod]->ofsTags);
     LL(mod->md3[lod]->ofsSurfaces);
     LL(mod->md3[lod]->ofsEnd);
-
-	if ( mod->md3[lod]->numFrames < 1 ) {
-		ri.Printf( PRINT_WARNING, "R_LoadMD3: %s has no frames\n", mod_name );
-		return qfalse;
-	}
     
 	// swap all the frames
     frame = (md3Frame_t *) ( (byte *)mod->md3[lod] + mod->md3[lod]->ofsFrames );
@@ -548,7 +569,14 @@ static qboolean R_LoadMD3 (model_t *mod, int lod, void *buffer, int fileSize, co
 
 	// swap all the surfaces
 	surf = (md3Surface_t *) ( (byte *)mod->md3[lod] + mod->md3[lod]->ofsSurfaces );
+	surfRemaining = size - mod->md3[lod]->ofsSurfaces;
 	for ( i = 0 ; i < mod->md3[lod]->numSurfaces ; i++) {
+		int surfaceSize;
+
+		if ( surfRemaining < (int)sizeof( md3Surface_t ) ) {
+			ri.Printf( PRINT_WARNING, "R_LoadMD3: %s has a truncated surface\n", mod_name );
+			return qfalse;
+		}
 
         LL(surf->ident);
         LL(surf->flags);
@@ -561,15 +589,31 @@ static qboolean R_LoadMD3 (model_t *mod, int lod, void *buffer, int fileSize, co
         LL(surf->ofsSt);
         LL(surf->ofsXyzNormals);
         LL(surf->ofsEnd);
-		
-		if ( surf->numVerts > SHADER_MAX_VERTEXES ) {
-			ri.Error (ERR_DROP, "R_LoadMD3: %s has more than %i verts on a surface (%i)",
-				mod_name, SHADER_MAX_VERTEXES, surf->numVerts );
+
+		surfaceSize = surf->ofsEnd;
+		if ( surfaceSize < (int)sizeof( md3Surface_t ) || surfaceSize > surfRemaining ) {
+			ri.Printf( PRINT_WARNING, "R_LoadMD3: %s has an out of range surface\n", mod_name );
+			return qfalse;
 		}
-		if ( surf->numTriangles*3 > SHADER_MAX_INDEXES ) {
-			ri.Error (ERR_DROP, "R_LoadMD3: %s has more than %i triangles on a surface (%i)",
-				mod_name, SHADER_MAX_INDEXES / 3, surf->numTriangles );
+		if ( surf->numFrames < 1 || surf->numFrames > mod->md3[lod]->numFrames ||
+			 surf->numShaders < 0 || surf->numShaders > MD3_MAX_SHADERS ||
+			 surf->numVerts < 0 || surf->numVerts > SHADER_MAX_VERTEXES ||
+			 surf->numTriangles < 0 || surf->numTriangles > SHADER_MAX_INDEXES / 3 ) {
+			ri.Printf( PRINT_WARNING, "R_LoadMD3: %s has invalid surface counts\n", mod_name );
+			return qfalse;
 		}
+		if ( !Q_BufferRangeValid( surfaceSize, surf->ofsShaders, surf->numShaders,
+					sizeof( md3Shader_t ) ) ||
+			 !Q_BufferRangeValid( surfaceSize, surf->ofsTriangles, surf->numTriangles,
+					sizeof( md3Triangle_t ) ) ||
+			 !Q_BufferRangeValid( surfaceSize, surf->ofsSt, surf->numVerts,
+					sizeof( md3St_t ) ) ||
+			 !Q_BufferRangeValid( surfaceSize, surf->ofsXyzNormals,
+					surf->numVerts * surf->numFrames, sizeof( md3XyzNormal_t ) ) ) {
+			ri.Printf( PRINT_WARNING, "R_LoadMD3: %s has out of range surface arrays\n", mod_name );
+			return qfalse;
+		}
+		surf->name[MAX_QPATH-1] = 0;
 	
 		// change to surface identifier
 		surf->ident = SF_MD3;
@@ -625,7 +669,8 @@ static qboolean R_LoadMD3 (model_t *mod, int lod, void *buffer, int fileSize, co
 
 
 		// find the next surface
-		surf = (md3Surface_t *)( (byte *)surf + surf->ofsEnd );
+		surfRemaining -= surfaceSize;
+		surf = (md3Surface_t *)( (byte *)surf + surfaceSize );
 	}
     
 	return qtrue;

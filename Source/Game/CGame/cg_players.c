@@ -61,9 +61,15 @@ sfxHandle_t	CG_CustomSound( int clientNum, const char *soundName ) {
 	if(clientNum < 0 || clientNum >= MAX_CLIENTS){clientNum = 0;}
 	ci = &cgs.clientinfo[clientNum];
 	if(!ci->infoValid){return cgs.media.nullSound;}
-	for(i = 0 ; i < MAX_CUSTOM_SOUNDS; i++){
-		if(!strcmp(soundName,cg_customSoundNames[i]) && ci->sounds[ci->tierCurrent][(i*9)+nextIndex]){
-			return ci->sounds[ci->tierCurrent][(i*9)+nextIndex];
+	if(ci->tierCurrent < 0 || ci->tierCurrent >= 9){return cgs.media.nullSound;}
+	// Registration stores variants at i * 9 + (count - 1), so the lookup
+	// must use the same zero-based slot.  Only initialized names are valid;
+	// the rest of the table is NULL.
+	for(i = 0 ; i < MAX_CUSTOM_SOUNDS && cg_customSoundNames[i]; i++){
+		int soundIndex = (i * 9) + (nextIndex - 1);
+
+		if(!strcmp(soundName,cg_customSoundNames[i]) && ci->sounds[ci->tierCurrent][soundIndex]){
+			return ci->sounds[ci->tierCurrent][soundIndex];
 		}
 	}
 	CG_Printf("Client %i [%s] could not find sound : %s%i\n",clientNum,ci->name,soundName,nextIndex);
@@ -88,16 +94,21 @@ qboolean CG_ParseAnimationFile( const char *filename, clientInfo_t *ci ) {
 	char		*token;
 	float		fps;
 	char		text[32000];
-	fileHandle_t	f;
+	fileHandle_t	f = 0;
 	animation_t *animations;
 	qboolean doneMeshType;
 	animations = ci->animations;
 	// load the file
 	len = trap_FS_FOpenFile( filename, &f, FS_READ );
 	if ( len <= 0 ) {
+		// A zero-length file still owns a handle.  Failing to close it is
+		// what exhausted the handle table during rapid model swaps.
+		if ( f ) {
+			trap_FS_FCloseFile( f );
+		}
 		return qfalse;
 	}
-	if ( len >= sizeof( text ) - 1 ) {
+	if ( len >= (int)sizeof( text ) - 1 ) {
 		CG_Printf( "File %s too long\n", filename );
 		trap_FS_FCloseFile( f );
 		return qfalse;
@@ -210,6 +221,9 @@ qboolean CG_ParseAnimationFile( const char *filename, clientInfo_t *ci ) {
 	if(doneMeshType!=qtrue) ci->usingMD4 = qfalse;
 	// read information for each frame
 	for ( i = 0 ; i < MAX_ANIMATIONS ; i++ ) {
+		int frameCount;
+		int value;
+
 		token = COM_Parse( &text_p );
 		if ( !*token ) {
 
@@ -230,7 +244,13 @@ qboolean CG_ParseAnimationFile( const char *filename, clientInfo_t *ci ) {
 
 			break;
 		}
-		animations[i].firstFrame = atoi( token );
+		if ( !Q_ParseInteger( token, &value ) ) {
+			CG_Printf( "Bad first frame in %s: %s\n", filename, token );
+			break;
+		}
+		if ( value > 10000 ) { value = 10000; }
+		if ( value < -10000 ) { value = -10000; }
+		animations[i].firstFrame = value;
 
 
 // ADDING FOR ZEQ2
@@ -250,29 +270,47 @@ qboolean CG_ParseAnimationFile( const char *filename, clientInfo_t *ci ) {
 
 		token = COM_Parse( &text_p );
 		if(!*token){break;}
-		animations[i].numFrames = atoi( token );
+		if ( !Q_ParseInteger( token, &frameCount ) ) {
+			CG_Printf( "Bad frame count in %s: %s\n", filename, token );
+			break;
+		}
 		animations[i].reversed = qfalse;
 		animations[i].flipflop = qfalse;
 		// if numFrames is negative the animation is reversed
-		if (animations[i].numFrames < 0) {
-			animations[i].numFrames = -animations[i].numFrames;
+		if ( frameCount == INT_MIN ) {
+			frameCount = 0;
+		} else if ( frameCount < 0 ) {
+			frameCount = -frameCount;
 			animations[i].reversed = qtrue;
 		}
+		if ( frameCount > 10000 ) { frameCount = 10000; }
+		animations[i].numFrames = frameCount;
+
 		token = COM_Parse( &text_p );
 		if ( !*token ) {
 			break;
 		}
-		animations[i].loopFrames = atoi( token );
+		if ( !Q_ParseInteger( token, &value ) ) {
+			CG_Printf( "Bad loop frame count in %s: %s\n", filename, token );
+			break;
+		}
+		if ( value > 10000 ) { value = 10000; }
+		if ( value < -10000 ) { value = -10000; }
+		animations[i].loopFrames = value;
+
 		token = COM_Parse( &text_p );
 		if ( !*token ) {
 			break;
 		}
-		fps = atof( token );
-		if ( fps == 0 ) {
+		if ( !Q_ParseFloat( token, &fps ) || fps < 0.01f || fps > 1000.0f ) {
+			CG_Printf( "Bad fps in %s: %s\n", filename, token );
 			fps = 1;
 		}
-		animations[i].frameLerp = 1000 / fps;
-		animations[i].initialLerp = 1000 / fps;
+		value = (int)( 1000.0f / fps );
+		if ( value < 1 ) { value = 1; }
+		if ( value > 10000 ) { value = 10000; }
+		animations[i].frameLerp = value;
+		animations[i].initialLerp = value;
 		// ADDING FOR ZEQ2
 		// Read the continuous flag for ki attack animations
 		if ( i >= ANIM_KI_ATTACK1_FIRE &&
@@ -282,7 +320,10 @@ qboolean CG_ParseAnimationFile( const char *filename, clientInfo_t *ci ) {
 			if ( !*token ) {
 				break;
 			}
-			animations[i].continuous = atoi( token );
+			if ( !Q_ParseInteger( token, &value ) ) {
+				value = 0;
+			}
+			animations[i].continuous = value ? 1 : 0;
 		}
 	}
 	memcpy(&animations[ANIM_BACKWALK], &animations[ANIM_WALK], sizeof(animation_t));

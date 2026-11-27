@@ -1346,6 +1346,8 @@ void CG_AddRefExtEntityWithPowerups( refExtEntity_t *ent, entityState_t *state, 
 void CG_NewClientInfo( int clientNum );
 sfxHandle_t	CG_CustomSound( int clientNum, const char *soundName );
 qboolean CG_ParseAnimationFile( const char *filename, clientInfo_t *ci );
+qboolean CG_FileExists( const char *path );
+void CG_ClearFileCache( void );
 qboolean CG_GetTagOrientationFromPlayerEntity( centity_t *cent, char *tagName, orientation_t *tagOrient );
 qboolean CG_GetTagOrientationFromPlayerEntityHeadModel( centity_t *cent, char *tagName, orientation_t *tagOrient );
 qboolean CG_GetTagOrientationFromPlayerEntityTorsoModel( centity_t *cent, char *tagName, orientation_t *tagOrient );

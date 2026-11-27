@@ -728,6 +728,10 @@ intptr_t CL_UISystemCalls( intptr_t *args ) {
 		return 0;
 
 	case UI_FS_FOPENFILE:
+		// See CG_FS_FOPENFILE: a zero handle argument is an existence check.
+		if ( !args[2] ) {
+			return FS_FOpenFileRead( VMA(1), NULL, qtrue );
+		}
 		return FS_FOpenFileByMode( VMA(1), VMA(2), args[3] );
 
 	case UI_FS_READ:

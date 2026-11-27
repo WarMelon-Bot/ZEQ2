@@ -744,6 +744,16 @@ qboolean Q_ParseInteger( const char *s, int *out );
 qboolean Q_ParseFloat( const char *s, float *out );
 qboolean Q_EndsWithIgnoreCase( const char *s, size_t len, const char *suffix );
 
+// Filesystem paths arriving from userinfo/configstrings must not be able to
+// escape the game directory.  Q_NormalizeQPath skips leading separators and
+// Q_IsSafeQPath rejects traversal and drive/namespace markers.
+const char *Q_NormalizeQPath( const char *path );
+qboolean Q_IsSafeQPath( const char *path );
+
+// Integer-only range check used by binary asset loaders.  Unlike a raw
+// offset + count * size expression it cannot overflow or wrap negative.
+qboolean Q_BufferRangeValid( int bufferSize, int offset, int count, int elementSize );
+
 // portable case insensitive compare
 int		Q_stricmp (const char *s1, const char *s2);
 int		Q_strncmp (const char *s1, const char *s2, int n);
