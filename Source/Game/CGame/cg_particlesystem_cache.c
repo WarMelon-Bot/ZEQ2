@@ -1002,7 +1002,7 @@ static void PSys_ParseFile( char *filename, int *num ) {
 
 	// If the file is too long to fit into the buffer, dump an error and abort reading
 	// the file.
-	if ( len >= sizeof( text ) - 1 ) {
+	if ( len >= (int)sizeof( text ) - 1 ) {
 		CG_Printf( S_COLOR_RED "ERROR: file too large: %s is %i, max allowed is %i", filename, len, MAX_PSYS_FILELEN );
 		trap_FS_FCloseFile( file );
 		return;

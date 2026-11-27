@@ -6,6 +6,7 @@
  * infinities, and the suffix helper must never read before a short filename.
  */
 
+#include <limits.h>
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -86,11 +87,49 @@ static void test_suffix_matching( void ) {
 		"explicit short length does not match" );
 }
 
+static void test_path_safety( void ) {
+	expect( Q_IsSafeQPath( "players/goku/lower.md3" ) == qtrue,
+		"normal model path is accepted" );
+	expect( Q_IsSafeQPath( "../players/goku/lower.md3" ) == qfalse,
+		"forward-slash traversal is rejected" );
+	expect( Q_IsSafeQPath( "players\\..\\goku\\lower.md3" ) == qfalse,
+		"backslash traversal is rejected" );
+	expect( Q_IsSafeQPath( "players/goku/lower.md3::stream" ) == qfalse,
+		"alternate data stream syntax is rejected" );
+	expect( Q_IsSafeQPath( "" ) == qfalse,
+		"empty path is rejected" );
+	expect( Q_IsSafeQPath( NULL ) == qfalse,
+		"NULL path is rejected" );
+	expect( strcmp( Q_NormalizeQPath( "/players/goku/lower.md3" ),
+		"players/goku/lower.md3" ) == 0, "leading slash is normalized" );
+	expect( strcmp( Q_NormalizeQPath( "\\\\players\\goku" ),
+		"players\\goku" ) == 0, "leading backslashes are normalized" );
+}
+
+static void test_range_validation( void ) {
+	expect( Q_BufferRangeValid( 100, 0, 10, 4 ) == qtrue,
+		"range fully inside a buffer is accepted" );
+	expect( Q_BufferRangeValid( 100, 96, 1, 4 ) == qtrue,
+		"range ending at the buffer end is accepted" );
+	expect( Q_BufferRangeValid( 100, 97, 1, 4 ) == qfalse,
+		"range past the buffer end is rejected" );
+	expect( Q_BufferRangeValid( 100, -1, 1, 4 ) == qfalse,
+		"negative offset is rejected" );
+	expect( Q_BufferRangeValid( 100, 0, -1, 4 ) == qfalse,
+		"negative count is rejected" );
+	expect( Q_BufferRangeValid( 100, 0, 10, 0 ) == qfalse,
+		"zero-sized elements are rejected" );
+	expect( Q_BufferRangeValid( INT_MAX, 1, INT_MAX, 2 ) == qfalse,
+		"overflowing count multiplication is rejected" );
+}
+
 int main( void ) {
-	printf( "1..%d\n", 26 );
+	printf( "1..%d\n", 41 );
 	test_integer_conversion();
 	test_float_conversion();
 	test_suffix_matching();
+	test_path_safety();
+	test_range_validation();
 
 	if ( failures ) {
 		printf( "%d parse/IO helper test(s) failed\n", failures );

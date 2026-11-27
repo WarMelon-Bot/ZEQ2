@@ -1149,16 +1149,19 @@ static qboolean UI_ParseAnimationFile( const char *filename, animation_t *animat
 	char		*token;
 	float		fps;
 	char		text[20000];
-	fileHandle_t	f;
+	fileHandle_t	f = 0;
 
 	memset( animations, 0, sizeof( animation_t ) * MAX_ANIMATIONS );
 
 	// load the file
 	len = trap_FS_FOpenFile( filename, &f, FS_READ );
 	if ( len <= 0 ) {
+		if ( f ) {
+			trap_FS_FCloseFile( f );
+		}
 		return qfalse;
 	}
-	if ( len >= ( sizeof( text ) - 1 ) ) {
+	if ( len >= (int)sizeof( text ) - 1 ) {
 		Com_Printf( "File %s too long\n", filename );
 		trap_FS_FCloseFile( f );
 		return qfalse;
@@ -1223,12 +1226,19 @@ static qboolean UI_ParseAnimationFile( const char *filename, animation_t *animat
 
 	// read information for each frame
 	for ( i = 0 ; i < MAX_ANIMATIONS ; i++ ) {
+		int value;
 
 		token = COM_Parse( &text_p );
 		if ( !token ) {
 			break;
 		}
-		animations[i].firstFrame = atoi( token );
+		if ( !Q_ParseInteger( token, &value ) ) {
+			Com_Printf( "Bad first frame in %s: %s\n", filename, token );
+			break;
+		}
+		if ( value > 10000 ) { value = 10000; }
+		if ( value < -10000 ) { value = -10000; }
+		animations[i].firstFrame = value;
 /*
 		// leg only frames are adjusted to not count the upper body only frames
 		if ( i == ANIM_WALKCR ) {
@@ -1242,24 +1252,39 @@ static qboolean UI_ParseAnimationFile( const char *filename, animation_t *animat
 		if ( !token ) {
 			break;
 		}
-		animations[i].numFrames = atoi( token );
+		if ( !Q_ParseInteger( token, &value ) || value == INT_MIN ) {
+			Com_Printf( "Bad frame count in %s: %s\n", filename, token );
+			break;
+		}
+		if ( value < 0 ) { value = -value; }
+		if ( value > 10000 ) { value = 10000; }
+		animations[i].numFrames = value;
 
 		token = COM_Parse( &text_p );
 		if ( !token ) {
 			break;
 		}
-		animations[i].loopFrames = atoi( token );
+		if ( !Q_ParseInteger( token, &value ) ) {
+			Com_Printf( "Bad loop frame count in %s: %s\n", filename, token );
+			break;
+		}
+		if ( value > 10000 ) { value = 10000; }
+		if ( value < -10000 ) { value = -10000; }
+		animations[i].loopFrames = value;
 
 		token = COM_Parse( &text_p );
 		if ( !token ) {
 			break;
 		}
-		fps = atof( token );
-		if ( fps == 0 ) {
+		if ( !Q_ParseFloat( token, &fps ) || fps < 0.01f || fps > 1000.0f ) {
+			Com_Printf( "Bad fps in %s: %s\n", filename, token );
 			fps = 1;
 		}
-		animations[i].frameLerp = 1000 / fps;
-		animations[i].initialLerp = 1000 / fps;
+		value = (int)( 1000.0f / fps );
+		if ( value < 1 ) { value = 1; }
+		if ( value > 10000 ) { value = 10000; }
+		animations[i].frameLerp = value;
+		animations[i].initialLerp = value;
 
 		// ADDING FOR ZEQ2
 
@@ -1271,7 +1296,10 @@ static qboolean UI_ParseAnimationFile( const char *filename, animation_t *animat
 			if ( !*token ) {
 				break;
 			}
-			animations[i].continuous = atoi( token );
+			if ( !Q_ParseInteger( token, &value ) ) {
+				value = 0;
+			}
+			animations[i].continuous = value ? 1 : 0;
 		}
 
 		// END ADDING

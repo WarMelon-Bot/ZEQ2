@@ -24,6 +24,47 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include "cg_local.h"
 int forceModelModificationCount = -1;
 
+/*
+ * A client model load probes hundreds of asset paths for every player.
+ * Most paths are probed again for the next player and for the next userinfo
+ * update.  Cache the answers for the lifetime of the cgame VM so rapid model
+ * swaps do not repeat all of that filesystem work.
+ */
+#define CG_FILE_CACHE_ENTRIES	256
+
+typedef struct {
+	char		path[MAX_QPATH];
+	qboolean	exists;
+} cgFileCache_t;
+
+static cgFileCache_t	cgFileCache[CG_FILE_CACHE_ENTRIES];
+static int				cgFileCacheNext;
+
+void CG_ClearFileCache( void ) {
+	memset( cgFileCache, 0, sizeof( cgFileCache ) );
+	cgFileCacheNext = 0;
+}
+
+qboolean CG_FileExists( const char *path ) {
+	int i;
+
+	if ( !path || !*path ) {
+		return qfalse;
+	}
+
+	for ( i = 0 ; i < CG_FILE_CACHE_ENTRIES ; i++ ) {
+		if ( cgFileCache[i].path[0] && !Q_stricmp( cgFileCache[i].path, path ) ) {
+			return cgFileCache[i].exists;
+		}
+	}
+
+	i = cgFileCacheNext;
+	cgFileCacheNext = ( cgFileCacheNext + 1 ) % CG_FILE_CACHE_ENTRIES;
+	Q_strncpyz( cgFileCache[i].path, path, sizeof( cgFileCache[i].path ) );
+	cgFileCache[i].exists = trap_FS_FOpenFile( path, 0, FS_READ ) > 0 ? qtrue : qfalse;
+	return cgFileCache[i].exists;
+}
+
 void CG_Init( int serverMessageNum, int serverCommandSequence, int clientNum );
 void CG_Shutdown( void );
 
@@ -705,8 +746,8 @@ static qboolean CG_PopFile(void) {
 #endif
 		goto PopFile;
 	}
-	if (len >= sizeof(lfbuf)) {
-		CG_Printf(S_COLOR_YELLOW "file too large: '%s' > %d\n", name, sizeof(lfbuf)-1);
+	if (len >= (int)sizeof(lfbuf)) {
+		CG_Printf(S_COLOR_YELLOW "file too large: '%s' > %d\n", name, (int)sizeof(lfbuf)-1);
 #if LFDEBUG
 		CG_LoadingString(va("LF: CG_PopFile(%s): file too large", name));
 #endif
@@ -1248,8 +1289,8 @@ void CG_LoadLensFlareEntities(void) {
 		CG_Printf("'%s' not found\n", name);
 		return;
 	}
-	if (len >= sizeof(lfbuf)) {
-		CG_Printf(S_COLOR_YELLOW "file too large: '%s' > %d\n", name, sizeof(lfbuf)-1);
+	if (len >= (int)sizeof(lfbuf)) {
+		CG_Printf(S_COLOR_YELLOW "file too large: '%s' > %d\n", name, (int)sizeof(lfbuf)-1);
 		return;
 	}
 	CG_Printf("reading '%s'...\n", name);

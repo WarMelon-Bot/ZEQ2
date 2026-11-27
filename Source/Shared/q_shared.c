@@ -871,6 +871,65 @@ qboolean Q_ParseFloat( const char *s, float *out ) {
 Q_EndsWithIgnoreCase
 =================
 */
+/*
+==================
+Q_NormalizeQPath
+
+qpaths are relative to the search path.  Callers used to strip leading
+separators ad-hoc, and some (notably FS_FOpenFileRead's existence-only path)
+forgot to do it, so "/players/model/x.md3" was treated differently from the
+same path without the slash.
+==================
+*/
+const char *Q_NormalizeQPath( const char *path ) {
+	if ( !path ) {
+		return NULL;
+	}
+	while ( *path == '/' || *path == '\\' ) {
+		path++;
+	}
+	return path;
+}
+
+/*
+==================
+Q_IsSafeQPath
+
+Reject paths that could traverse out of a search path or name an alternate
+namespace.  Model and skin names come from untrusted userinfo strings.
+==================
+*/
+qboolean Q_IsSafeQPath( const char *path ) {
+	if ( !path || !*path ) {
+		return qfalse;
+	}
+	if ( strstr( path, ".." ) || strstr( path, "::" ) ) {
+		return qfalse;
+	}
+	return qtrue;
+}
+
+/*
+==================
+Q_BufferRangeValid
+
+Binary asset headers are untrusted.  Validate [offset, offset + count *
+elementSize) inside a buffer without overflowing signed integers.
+==================
+*/
+qboolean Q_BufferRangeValid( int bufferSize, int offset, int count, int elementSize ) {
+	if ( bufferSize < 0 || offset < 0 || count < 0 || elementSize <= 0 ) {
+		return qfalse;
+	}
+	if ( offset > bufferSize ) {
+		return qfalse;
+	}
+	if ( count > ( bufferSize - offset ) / elementSize ) {
+		return qfalse;
+	}
+	return qtrue;
+}
+
 qboolean Q_EndsWithIgnoreCase( const char *s, size_t len, const char *suffix ) {
 	size_t suffixLen;
 
