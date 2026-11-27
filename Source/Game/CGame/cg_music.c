@@ -102,8 +102,12 @@ void CG_ParsePlaylist(void){
 	cgs.music.fadeAmount = 0;
 	cgs.music.started = qtrue;
 	cgs.music.random = qfalse;
-	if(trap_FS_FOpenFile("music/playlist.cfg",0,FS_READ)>0){
-		fileLength = trap_FS_FOpenFile("music/playlist.cfg",&playlist,FS_READ);
+	fileLength = trap_FS_FOpenFile("music/playlist.cfg",&playlist,FS_READ);
+	if(playlist && fileLength > 0){
+		// Bound the read to the parser buffer; oversized files must not smash the stack.
+		if ( fileLength > (int)sizeof(fileContents) - 1 ) {
+			fileLength = (int)sizeof(fileContents) - 1;
+		}
 		trap_FS_Read(fileContents,fileLength,playlist);
 		fileContents[fileLength] = 0;
 		trap_FS_FCloseFile(playlist);
@@ -137,7 +141,7 @@ void CG_ParsePlaylist(void){
 			}
 			else{
 				static char temp[16][32][256];
-				strncpy(temp[typeIndex][trackIndex],token,256-1);
+				Q_strncpyz(temp[typeIndex][trackIndex],token,sizeof(temp[typeIndex][trackIndex]));
 				cgs.music.playlist[typeIndex][trackIndex] = temp[typeIndex][trackIndex];
 				cgs.music.trackLength[typeIndex][trackIndex] = CG_GetMilliseconds(COM_Parse(&parse));
 				//cgs.music.hasPlayed[typeIndex][trackIndex] = qfalse;

@@ -930,13 +930,11 @@ void parseAura(char *path,auraConfig_t *aura){
 	char *token,*parse;
 	int fileLength;
 	char fileContents[32000];
-	if(trap_FS_FOpenFile(path,0,FS_READ)>0){
-		fileLength = trap_FS_FOpenFile(path,&auraCFG,FS_READ);
+	fileLength = trap_FS_FOpenFile(path,&auraCFG,FS_READ);
+	if(auraCFG && fileLength > 0){
 		// A malformed or hostile config file must not overflow the stack
 		// buffer used for parsing.
-		if ( fileLength < 0 ) {
-			fileLength = 0;
-		} else if ( fileLength > (int)sizeof(fileContents) - 1 ) {
+		if ( fileLength > (int)sizeof(fileContents) - 1 ) {
 			fileLength = (int)sizeof(fileContents) - 1;
 		}
 		trap_FS_Read(fileContents,fileLength,auraCFG);

@@ -1,5 +1,5 @@
 typedef struct{
-	char *name;
+	char name[MAX_QPATH];
 	qhandle_t icon;
 	qboolean damageFeatures;
 	qboolean damageModelsRevertHealed;
