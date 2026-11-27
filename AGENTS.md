@@ -67,6 +67,7 @@ Run tests with `./build.sh test` or invoke individually:
 - `./build.sh memory-test-asan` — Build and run allocator unit tests with ASan/UBSan
 - `./build.sh pmove-test` — Build and run deterministic movement/melee/weapon regression tests (diff-against `.expected` file)
 - `./build.sh connect-cache-test` — Run model config cache regression tests
+- `./build.sh snapshot-join-test` — Verify connecting/primed/zombie clients never build a PVS snapshot and that join snapshots are empty, non-delta, and flagged `SNAPFLAG_NOT_ACTIVE`
 - `./build.sh chat-message-test` — Run client chat/message hardening regression tests
 - `./build.sh string-test` — Run Com_sprintf truncation/stack-safety regression tests
 - `./build.sh network-safety-test` — Run untrusted network message parser regression tests
@@ -80,7 +81,7 @@ Run tests with `./build.sh test` or invoke individually:
 - `./build.sh vulkan-smoke-test` — Smoke-test the Vulkan client under Xvfb (lavapipe); verify Vulkan backend initialized and 8 stencil bits; verify no shader/pipeline creation failures. Runs both single-threaded and threaded renderer paths.
 
 **Integration Test:**
-- `./build.sh integration-test` — Connect a client to a real server and exercise movement, combat, chat, and console actions. Validates the full connect → enter game → act → chat → disconnect cycle; ignores only the one-time startup hitch before the client enters the game.
+- `./build.sh integration-test` — Connect a client to a real server and exercise movement, combat, chat, and console actions. Validates the full connect → enter game → act → chat → disconnect cycle. Hitch warnings are checked from `Game Initialization` onward, so join-time hitches fail the test; only the earlier map-load/VM-compilation hitch is tolerated.
 
 ### Test Suites in GitHub Actions
 The `.github/workflows/ci.yml` workflow runs:

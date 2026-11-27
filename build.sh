@@ -11,6 +11,7 @@
 #   ./build.sh memory-test-asan  build and run the allocator tests with ASan/UBSan
 #   ./build.sh pmove-test        run deterministic movement/melee/weapon regression tests
 #   ./build.sh connect-cache-test  run model config cache regression tests
+#   ./build.sh snapshot-join-test  run join-time snapshot/PVS regression tests
 #   ./build.sh chat-message-test  run client chat/message hardening regression tests
 #   ./build.sh network-safety-test  run untrusted network message parser regression tests
 #   ./build.sh parse-io-test  run script number and filesystem suffix helper regression tests
@@ -393,6 +394,21 @@ connect_cache_test() {
         -o "$binary" \
         "$SOURCE_DIR/Tests/test_connect_cache.c" \
         "$game/g_tiers.c" -lm
+    "$binary"
+}
+
+snapshot_join_test() {
+    local cc="${CC:-cc}" binary="$TEST_DIR/snapshot-join-tests"
+
+    log "Building and running join-time snapshot regression tests..."
+    mkdir -p "$TEST_DIR"
+    # The test includes the real server snapshot builder with collision stubs,
+    # then verifies that connecting clients never walk the PVS.
+    "$cc" -std=gnu17 -Wall -Wextra -Wno-unused-parameter -DDEDICATED -DNDEBUG \
+        -DNO_VM_COMPILED -DPRODUCT_VERSION='"ZEQ2-Lite snapshot join tests"' \
+        -I "$SOURCE_DIR/Shared" -I "$SOURCE_DIR/Game/Game" \
+        -I "$SOURCE_DIR/Engine/client" -I "$SOURCE_DIR/Engine/server" \
+        -o "$binary" "$SOURCE_DIR/Tests/test_snapshot_join.c" -lm
     "$binary"
 }
 
@@ -1058,10 +1074,12 @@ CFGEOF
         'lost .* clientCommands'; do
         local server_check_log="$server_log"
         if [[ "$pattern" == 'Hitch warning' ]]; then
-            # VM compilation makes the first server frame slow in headless CI.
-            # That hitch happens before the test client connects; only hitches
-            # during the actual gameplay portion of the log are failures.
-            server_check_log="$(sed -n '/ClientBegin: 0/,$p' "$server_log")"
+            # VM compilation makes the first server frame slow in headless CI,
+            # but that happens before "Game Initialization".  Everything after
+            # it -- including the whole connect/primed/enter-world sequence --
+            # must be hitch free, otherwise a join-time regression would be
+            # hidden by waiting for ClientBegin to filter the log.
+            server_check_log="$(sed -n '/Game Initialization/,$p' "$server_log")"
         fi
         if grep -qE "$pattern" "$client_log" || printf '%s\n' "$server_check_log" | grep -qE "$pattern"; then
             printf '  unexpected error matching %s\n' "$pattern" >&2
@@ -1106,6 +1124,7 @@ Commands:
   memory-test-asan  Build and run the allocator unit tests with ASan/UBSan
   pmove-test  Build and run deterministic movement/melee/weapon regression tests
   connect-cache-test  Run model config cache regression tests
+  snapshot-join-test  Run join-time snapshot/PVS regression tests
   chat-message-test  Run client chat/message hardening regression tests
   string-test  Com_sprintf truncation/stack-safety regression tests
   network-safety-test  Run untrusted network message parser regression tests
@@ -1153,6 +1172,7 @@ while (($#)); do
                   "$1" == native || "$1" == test || "$1" == memory-limit-test || \
                   "$1" == memory-test || "$1" == memory-test-asan || \
                   "$1" == pmove-test || "$1" == connect-cache-test || \
+                  "$1" == snapshot-join-test || \
                    "$1" == chat-message-test || \
                    "$1" == string-test || \
                    "$1" == network-safety-test || "$1" == parse-io-test || \
@@ -1178,6 +1198,7 @@ case "$command_name" in
         memory_test_sanitized
         pmove_test
         connect_cache_test
+        snapshot_join_test
         chat_message_test
         string_test
         network_safety_test
@@ -1205,6 +1226,7 @@ case "$command_name" in
         memory_test_sanitized
         pmove_test
         connect_cache_test
+        snapshot_join_test
         chat_message_test
         string_test
         network_safety_test
@@ -1220,6 +1242,9 @@ case "$command_name" in
         ;;
     connect-cache-test)
         connect_cache_test
+        ;;
+    snapshot-join-test)
+        snapshot_join_test
         ;;
     chat-message-test)
         chat_message_test
