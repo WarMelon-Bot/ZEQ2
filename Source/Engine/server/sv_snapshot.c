@@ -47,6 +47,46 @@ A normal server packet will look like:
 
 /*
 =============
+SV_SnapshotIsActive
+
+A real, gameplay-visible snapshot is only possible once the client has entered
+the world.  Until then (CS_CONNECTED / CS_PRIMED / CS_ZOMBIE) the client either
+ignores the SNAPFLAG_NOT_ACTIVE snapshot outright or has no player entity to
+build a viewpoint from, so every PVS/entity walk would be wasted work.
+=============
+*/
+static qboolean SV_SnapshotIsActive( const client_t *client ) {
+	return client->state == CS_ACTIVE && client->gentity != NULL;
+}
+
+/*
+=============
+SV_ClearClientSnapshot
+
+Reset the frame slot before any snapshot work is done.  Keeping the playerstate
+zeroed and the entity range pointing at the current ring position makes the
+minimal "not active" snapshots deterministic; they used to be encoded from
+whatever stale frame happened to occupy the ring slot.
+=============
+*/
+static clientSnapshot_t *SV_ClearClientSnapshot( client_t *client ) {
+	clientSnapshot_t *frame;
+
+	// bump the counter used to prevent double adding
+	sv.snapshotCounter++;
+
+	frame = &client->frames[ client->netchan.outgoingSequence & PACKET_MASK ];
+
+	Com_Memset( &frame->ps, 0, sizeof( frame->ps ) );
+	Com_Memset( frame->areabits, 0, sizeof( frame->areabits ) );
+	frame->num_entities = 0;
+	frame->first_entity = svs.nextSnapshotEntities;
+
+	return frame;
+}
+
+/*
+=============
 SV_EmitPacketEntities
 
 Writes a delta update of an entityState_t list to the message.
@@ -124,12 +164,14 @@ static void SV_WriteSnapshotToClient( client_t *client, msg_t *msg ) {
 	int					lastframe;
 	int					i;
 	int					snapFlags;
+	qboolean			active;
 
 	// this is the snapshot we are creating
 	frame = &client->frames[ client->netchan.outgoingSequence & PACKET_MASK ];
+	active = SV_SnapshotIsActive( client );
 
 	// try to use a previous frame as the source for delta compressing the snapshot
-	if ( client->deltaMessage <= 0 || client->state != CS_ACTIVE ) {
+	if ( client->deltaMessage <= 0 || !active ) {
 		// client is asking for a retransmit
 		oldframe = NULL;
 		lastframe = 0;
@@ -179,7 +221,7 @@ static void SV_WriteSnapshotToClient( client_t *client, msg_t *msg ) {
 	if ( client->rateDelayed ) {
 		snapFlags |= SNAPFLAG_RATE_DELAYED;
 	}
-	if ( client->state != CS_ACTIVE ) {
+	if ( !active ) {
 		snapFlags |= SNAPFLAG_NOT_ACTIVE;
 	}
 
@@ -456,25 +498,19 @@ static void SV_BuildClientSnapshot( client_t *client ) {
 	sharedEntity_t				*ent;
 	entityState_t				*state;
 	svEntity_t					*svEnt;
-	sharedEntity_t				*clent;
 	int							clientNum;
 	playerState_t				*ps;
 
-	// bump the counter used to prevent double adding
-	sv.snapshotCounter++;
-
-	// this is the frame we are creating
-	frame = &client->frames[ client->netchan.outgoingSequence & PACKET_MASK ];
-
 	// clear everything in this snapshot
 	entityNumbers.numSnapshotEntities = 0;
-	Com_Memset( frame->areabits, 0, sizeof( frame->areabits ) );
+	frame = SV_ClearClientSnapshot( client );
 
-  // https://zerowing.idsoftware.com/bugzilla/show_bug.cgi?id=62
-	frame->num_entities = 0;
-	
-	clent = client->gentity;
-	if ( !clent || client->state == CS_ZOMBIE ) {
+	// A connecting client cannot act on a snapshot (CL_FirstSnapshot ignores
+	// SNAPFLAG_NOT_ACTIVE), so skip the PVS walk, the qsort and the entity ring
+	// copies entirely until the client actually enters the world.  These used
+	// to run once a second for every joining/downloading client and were the
+	// last join-time source of "Hitch warning" stalls on the server.
+	if ( !SV_SnapshotIsActive( client ) ) {
 		return;
 	}
 
